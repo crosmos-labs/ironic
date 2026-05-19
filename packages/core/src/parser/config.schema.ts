@@ -52,6 +52,23 @@ const PaginationOffsetSchema = z.object({
   }),
 });
 
+const PythonTargetSchema = z.object({
+  package_name: z.string(),
+  output_dir: z.string().default('./generated/python'),
+  module_name: z.string().optional(),
+  publish: z
+    .object({
+      registry: z.enum(['pypi', 'none']).default('pypi'),
+    })
+    .optional(),
+  options: z
+    .object({
+      async_client: z.boolean().default(true),
+      sync_client: z.boolean().default(true),
+    })
+    .optional(),
+});
+
 const TypescriptTargetSchema = z.object({
   package_name: z.string(),
   output_dir: z.string().default('./generated/typescript'),
@@ -100,6 +117,7 @@ export const ConfigSchema = z.object({
 
   targets: z.object({
     typescript: TypescriptTargetSchema.optional(),
+    python: PythonTargetSchema.optional(),
   }),
 
   client_settings: z
