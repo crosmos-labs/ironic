@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url';
 import type { IR, ResourceNode, TypeDef } from '@ironic/core';
 import { emitClientFile } from './emitters/client.js';
 import { emitResourceFile } from './emitters/resource.js';
-import { emitPythonTypesFile, emitPythonTypeDef } from './emitters/types.js';
+import { emitPythonTypeFile } from './emitters/types.js';
 import {
   emitPyprojectToml,
   emitReadme,
+  emitLicense,
   emitPyTyped,
   emitTopLevelInit,
   emitResourcesInit,
@@ -26,10 +27,8 @@ export interface EmitOptions {
 export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   const files: FileTree = new Map();
 
-  // Override the package name for Python if provided
   const pyPackageName = options.packageName ?? ir.meta.packageName;
 
-  // Derive the Python module name from the package name
   const moduleName =
     options.moduleName ??
     deriveModuleName(pyPackageName);
@@ -38,6 +37,8 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   // 1. Package scaffolding
   files.set('pyproject.toml', emitPyprojectToml(pyIR, moduleName));
   files.set('README.md', emitReadme(pyIR, moduleName));
+  const licenseText = emitLicense(pyIR);
+  if (licenseText) files.set('LICENSE', licenseText);
   files.set(`${moduleName}/py.typed`, emitPyTyped());
 
   // 2. Copy runtime files into {module}/_core/
@@ -46,25 +47,30 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   // 3. Emit the main client
   files.set(`${moduleName}/_client.py`, emitClientFile(ir));
 
-  // 4. Emit resource files
+  // 4. Emit resource files (types are imported from ../types/)
   for (const resource of ir.resources) {
     emitResourceTree(files, resource, `${moduleName}/resources`);
   }
   files.set(`${moduleName}/resources/__init__.py`, emitResourcesInit(ir));
 
-  // 5. Emit type files
-  const typeFileNames = emitTypes(files, ir.types, moduleName);
+  // 5. Emit each type as its own file under types/ (Stainless convention)
+  const typeFileNames: string[] = [];
+  for (const type of ir.types) {
+    const fileName = snakeCase(type.name);
+    files.set(`${moduleName}/types/${fileName}.py`, emitPythonTypeFile(type, ir.types));
+    typeFileNames.push(fileName);
+  }
 
-  // 6. Emit __init__.py (barrel export)
+  // 6. Emit types/__init__.py barrel
+  files.set(`${moduleName}/types/__init__.py`, emitTypesInit(ir.types));
+
+  // 7. Emit __init__.py (barrel export)
   files.set(`${moduleName}/__init__.py`, emitTopLevelInit(ir));
 
   return files;
 }
 
 function deriveModuleName(packageName: string): string {
-  // "@petstore/sdk" → "petstore"
-  // "petstore-sdk" → "petstore"
-  // "petstore" → "petstore"
   let name = packageName
     .replace(/^@[^/]+\//, '')
     .replace(/[-_]?sdk$/i, '');
@@ -108,7 +114,6 @@ function copyRuntimeFiles(
     }
   }
 
-  // Overwrite _version.py with the generated SDK's identity
   if (ir) {
     files.set(
       `${moduleName}/_core/_version.py`,
@@ -144,6 +149,7 @@ function emitResourceTree(
   basePath: string,
 ): void {
   const modName = snakeCase(resource.name);
+
   if (resource.children.length > 0) {
     const dirPath = `${basePath}/${modName}`;
     files.set(`${dirPath}/__init__.py`, emitResourceFile(resource));
@@ -153,38 +159,4 @@ function emitResourceTree(
   } else {
     files.set(`${basePath}/${modName}.py`, emitResourceFile(resource));
   }
-}
-
-function emitTypes(files: FileTree, types: TypeDef[], moduleName: string): string[] {
-  if (types.length === 0) return [];
-
-  const groups = new Map<string, TypeDef[]>();
-  const ungrouped: TypeDef[] = [];
-
-  for (const type of types) {
-    if (type.resourceName) {
-      const key = type.resourceName.split('.')[0] ?? 'shared';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(type);
-    } else {
-      ungrouped.push(type);
-    }
-  }
-
-  const typeFileNames: string[] = [];
-
-  for (const [group, defs] of groups) {
-    const fileName = snakeCase(group);
-    files.set(`${moduleName}/types/${fileName}.py`, emitPythonTypesFile(defs));
-    typeFileNames.push(fileName);
-  }
-
-  if (ungrouped.length > 0) {
-    files.set(`${moduleName}/types/shared.py`, emitPythonTypesFile(ungrouped));
-    typeFileNames.push('shared');
-  }
-
-  files.set(`${moduleName}/types/__init__.py`, emitTypesInit(typeFileNames));
-
-  return typeFileNames;
 }

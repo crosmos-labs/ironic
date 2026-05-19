@@ -1,7 +1,8 @@
 import type { TypeDef, TypeRef } from '@ironic/core';
 import { snakeCase } from '@ironic/core';
 import { emitPythonTypeRef, collectTypeRefs } from '../snippets/type-refs.js';
-import { fileHeader, joinBlocks } from '../snippets/formatters.js';
+import { fileHeader } from '../snippets/formatters.js';
+import { snakeCase as toSnake } from '../snippets/formatters.js';
 
 export function emitPythonTypeDef(def: TypeDef): string {
   if (def.type.kind === 'object') {
@@ -40,58 +41,47 @@ function emitTypedDict(def: TypeDef): string {
     return lines.join('\n');
   }
 
-  // Mixed required/optional: use two classes
-  const requiredEntries = entries.filter(([, p]) => p.required);
-  const optionalEntries = entries.filter(([, p]) => !p.required);
-
-  const baseName = `_${def.name}Required`;
+  // Mixed required/optional: use Required[] annotation (Stainless convention)
   const lines: string[] = [];
-
-  // Required base
-  lines.push(`class ${baseName}(TypedDict):`);
-  for (const [name, prop] of requiredEntries) {
-    const pyName = snakeCase(name);
-    if (prop.description) lines.push(`    # ${prop.description}`);
-    lines.push(`    ${pyName}: ${emitPythonTypeRef(prop.type)}`);
-  }
-
-  lines.push('');
-  lines.push('');
-
-  // Full class with optional fields
-  lines.push(`class ${def.name}(${baseName}, total=False):`);
+  lines.push(`class ${def.name}(TypedDict, total=False):`);
   if (def.description) {
     lines.push(`    """${def.description}"""`);
     lines.push('');
   }
-  for (const [name, prop] of optionalEntries) {
+
+  for (const [name, prop] of entries) {
     const pyName = snakeCase(name);
     if (prop.description) lines.push(`    # ${prop.description}`);
-    lines.push(`    ${pyName}: ${emitPythonTypeRef(prop.type)}`);
+    if (prop.required) {
+      lines.push(`    ${pyName}: Required[${emitPythonTypeRef(prop.type)}]`);
+    } else {
+      lines.push(`    ${pyName}: ${emitPythonTypeRef(prop.type)}`);
+    }
   }
 
   return lines.join('\n');
 }
 
-export function emitPythonTypesFile(types: TypeDef[]): string {
-  if (types.length === 0) return '';
+/**
+ * Emit a single type as its own file (Stainless convention: one type per file).
+ */
+export function emitPythonTypeFile(def: TypeDef, allTypes: TypeDef[]): string {
+  const localName = def.name;
 
-  const localNames = new Set(types.map((t) => t.name));
-
-  // Collect imports needed
-  const allRefs = new Set<string>();
   const typingImports = new Set<string>();
-  typingImports.add('Dict');  // always useful
+  gatherTypingImports(def.type, typingImports);
 
-  for (const type of types) {
-    for (const ref of collectTypeRefs(type.type)) {
-      allRefs.add(ref);
-    }
-    gatherTypingImports(type.type, typingImports);
-  }
+  const extImports: string[] = [];
+  const needsLiteral = hasLiteral(def.type);
+  const needsTypedDict = def.type.kind === 'object';
+  const needsRequired = def.type.kind === 'object' && hasRequired(def);
 
-  const externalRefs = [...allRefs]
-    .filter((ref) => !localNames.has(ref))
+  if (needsLiteral) extImports.push('Literal');
+  if (needsRequired) extImports.push('Required');
+  if (needsTypedDict) extImports.push('TypedDict');
+
+  const externalRefs = [...collectTypeRefs(def.type)]
+    .filter((ref) => ref !== localName)
     .sort();
 
   const lines: string[] = [
@@ -105,32 +95,33 @@ export function emitPythonTypesFile(types: TypeDef[]): string {
     lines.push(`from typing import ${[...typingImports].sort().join(', ')}`);
   }
 
-  const needsLiteral = types.some((t) => hasLiteral(t.type));
-  const needsTypedDict = types.some((t) => t.type.kind === 'object');
-
-  const extImports: string[] = [];
-  if (needsLiteral) extImports.push('Literal');
-  if (needsTypedDict) extImports.push('TypedDict');
-
   if (extImports.length > 0) {
-    lines.push(`from typing_extensions import ${extImports.join(', ')}`);
+    lines.push(`from typing_extensions import ${extImports.sort().join(', ')}`);
   }
 
   if (externalRefs.length > 0) {
-    lines.push('');
-    lines.push(`from .shared import ${externalRefs.join(', ')}`);
+    for (const ref of externalRefs) {
+      const refFile = toSnake(ref);
+      lines.push(`from .${refFile} import ${ref}`);
+    }
   }
 
   lines.push('');
-
-  const defs = types
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(emitPythonTypeDef);
-
-  lines.push(defs.join('\n\n\n'));
+  lines.push(`__all__ = ["${def.name}"]`);
+  lines.push('');
+  lines.push('');
+  lines.push(emitPythonTypeDef(def));
   lines.push('');
 
   return lines.join('\n');
+}
+
+function hasRequired(def: TypeDef): boolean {
+  if (def.type.kind !== 'object') return false;
+  const entries = Object.entries(def.type.properties);
+  const hasReq = entries.some(([, p]) => p.required);
+  const hasOpt = entries.some(([, p]) => !p.required);
+  return hasReq && hasOpt;
 }
 
 function gatherTypingImports(ref: TypeRef, imports: Set<string>): void {

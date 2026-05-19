@@ -1,7 +1,6 @@
 import type { ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/core';
-import { snakeCase } from '@ironic/core';
 import { emitPythonTypeRef, collectResourceTypeRefs } from '../snippets/type-refs.js';
-import { fileHeader, indent, docstring, joinBlocks } from '../snippets/formatters.js';
+import { fileHeader } from '../snippets/formatters.js';
 import { snakeCase as toSnake } from '../snippets/formatters.js';
 
 export function emitResourceFile(resource: ResourceNode): string {
@@ -36,11 +35,13 @@ function buildImports(resource: ResourceNode): string {
 
   lines.push(`from .._core import ${coreImports.join(', ')}`);
 
-  // Import type references
+  // All type refs come from ..types (one file per type, Stainless convention)
   const typeRefs = collectResourceTypeRefs(resource);
   if (typeRefs.size > 0) {
-    const sorted = [...typeRefs].sort();
-    lines.push(`from ..types import ${sorted.join(', ')}`);
+    for (const ref of [...typeRefs].sort()) {
+      const refFile = toSnake(ref);
+      lines.push(`from ..types.${refFile} import ${ref}`);
+    }
   }
 
   // Import child resources
@@ -63,7 +64,6 @@ function emitResourceClass(resource: ResourceNode, mode: 'sync' | 'async'): stri
   const lines: string[] = [];
   lines.push(`class ${className}(${baseClass}):`);
 
-  // Child resource declarations
   if (resource.children.length > 0) {
     for (const child of resource.children) {
       const childType = isAsync ? `Async${child.className}` : child.className;
@@ -71,7 +71,6 @@ function emitResourceClass(resource: ResourceNode, mode: 'sync' | 'async'): stri
     }
     lines.push('');
 
-    // Constructor to init children
     lines.push(`    def __init__(self, client):`);
     lines.push(`        super().__init__(client)`);
     for (const child of resource.children) {
@@ -81,13 +80,11 @@ function emitResourceClass(resource: ResourceNode, mode: 'sync' | 'async'): stri
     lines.push('');
   }
 
-  // Methods
   for (const method of resource.methods) {
     lines.push(emitMethod(method, isAsync));
     lines.push('');
   }
 
-  // Remove trailing blank line
   if (lines[lines.length - 1] === '') lines.pop();
 
   return lines.join('\n');
@@ -111,21 +108,17 @@ function emitMethod(method: MethodNode, isAsync: boolean): string {
 function buildMethodSignature(method: MethodNode, isAsync: boolean): string {
   const params: string[] = ['self'];
 
-  // Path params
   for (const param of method.pathParams) {
     params.push(`${toSnake(param.tsName)}: ${emitPythonTypeRef(param.type)}`);
   }
 
-  // Request body
   if (method.requestBody) {
     params.push(`body: ${emitPythonTypeRef(method.requestBody)}`);
   }
 
-  // Query params
   if (method.queryParamsTypeName) {
     params.push(`query: Optional[${method.queryParamsTypeName}] = None`);
   } else if (method.queryParams.length > 0) {
-    // Inline query params as keyword args
     for (const param of method.queryParams) {
       const pyName = toSnake(param.tsName);
       const typeStr = emitPythonTypeRef(param.type);
@@ -137,7 +130,6 @@ function buildMethodSignature(method: MethodNode, isAsync: boolean): string {
     }
   }
 
-  // Request options
   params.push('**kwargs: Any');
 
   return params.join(',\n        ');
