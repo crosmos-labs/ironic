@@ -8,12 +8,24 @@ import { pascalCase, safeIdentifier } from './naming.js';
 /**
  * Convert an OpenAPI SchemaObject into an IR TypeRef.
  * Handles primitives, arrays, objects, enums, oneOf, allOf, anyOf, $ref.
+ *
+ * If a schemaRegistry is provided, schemas that match known component schemas
+ * (by object identity) will produce RefTypeRef nodes instead of inline types.
  */
 export function schemaToTypeRef(
   schema: SchemaObject | undefined,
   nameHint?: string,
+  schemaRegistry?: Map<object, string>,
 ): TypeRef {
   if (!schema) return { kind: 'primitive', type: 'unknown' };
+
+  // Check if this schema is a known component schema (by object identity)
+  if (schemaRegistry && typeof schema === 'object') {
+    const knownName = schemaRegistry.get(schema);
+    if (knownName) {
+      return { kind: 'ref', name: knownName };
+    }
+  }
 
   // $ref (should be dereferenced by now, but just in case)
   if ('$ref' in schema && typeof schema.$ref === 'string') {

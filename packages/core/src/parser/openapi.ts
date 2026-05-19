@@ -4,6 +4,7 @@
 import SwaggerParser from '@apidevtools/swagger-parser';
 import type { OpenAPIObject, PathItemObject, SchemaObject } from 'openapi3-ts/oas31';
 import { IronicUserError } from '../errors.js';
+import { pascalCase } from '../utils/naming.js';
 
 export interface ParsedSpec {
   /** Fully dereferenced OpenAPI document */
@@ -22,6 +23,12 @@ export interface ParsedSpec {
   securitySchemes: Record<string, unknown>;
   /** Server URLs */
   servers: { url: string; description?: string }[];
+  /**
+   * Maps dereferenced schema objects back to their component names.
+   * Uses object identity — after dereference(), all $refs pointing to
+   * the same component resolve to the same JS object.
+   */
+  schemaRegistry: Map<object, string>;
 }
 
 /**
@@ -65,6 +72,16 @@ export async function parseOpenAPI(specPath: string): Promise<ParsedSpec> {
     description: s.description,
   }));
 
+  // Build reverse registry: schema object → PascalCase name
+  // After dereference(), all $ref locations point to the same JS object,
+  // so we can use object identity to detect named schemas anywhere in the spec.
+  const schemaRegistry = new Map<object, string>();
+  for (const [name, schema] of Object.entries(schemas)) {
+    if (typeof schema === 'object' && schema !== null) {
+      schemaRegistry.set(schema, pascalCase(name));
+    }
+  }
+
   return {
     raw: api,
     info: {
@@ -76,5 +93,7 @@ export async function parseOpenAPI(specPath: string): Promise<ParsedSpec> {
     schemas,
     securitySchemes,
     servers,
+    schemaRegistry,
   };
 }
+
