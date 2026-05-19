@@ -1,0 +1,23 @@
+{
+  "name": "ironic-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest",
+    "lint": "eslint packages",
+    "format": "prettier --write packages docs",
+    "dev:cli": "tsx packages/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.17.0",
+    "prettier": "^3.4.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^1.6.0"
+  }
+}

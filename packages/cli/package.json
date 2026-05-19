@@ -1,0 +1,22 @@
+{
+  "name": "@ironic/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ironic": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@ironic/core": "*",
+    "@ironic/generator-typescript": "*",
+    "@ironic/generator-mcp": "*",
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.0"
+  }
+}
