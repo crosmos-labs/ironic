@@ -1,35 +1,54 @@
 // ─── Resource Emitter ────────────────────────────────────────────────────────
-// Emit TypeScript resource classes from IR ResourceNodes.
+// Emit TypeScript resource classes from IR ResourceNodes. Stainless convention:
+// the resource file owns the types declared in its `models:` block — they're
+// emitted inline after the class body, then a `declare namespace` re-export
+// surfaces them under `ResourceName.TypeName`.
 
-import type { ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/core';
+import type { ResourceNode, MethodNode, ParamNode, TypeRef, TypeDef } from '@ironic/core';
 import { camelCase } from '@ironic/core';
-import { emitTypeRef } from './types.js';
+import { emitTypeRef, emitTypeDef } from './types.js';
 import { indent, jsdoc, joinBlocks, fileHeader } from '../snippets/formatters.js';
 import { collectResourceTypeRefs } from '../snippets/type-refs.js';
 
 /**
- * Emit a single resource file.
+ * Context the emitter needs to resolve type imports across resource files.
  */
-export function emitResourceFile(resource: ResourceNode): string {
-  const imports = buildImports(resource);
-  const classBody = emitResourceClass(resource);
-  const ns = emitNamespaceReExport(resource);
-
-  return joinBlocks(fileHeader(), imports, classBody, ns) + '\n';
+export interface ResourceEmitContext {
+  /** Types owned by this resource — emitted inline. */
+  ownedTypes: TypeDef[];
+  /** TypeName → owning resource name, for cross-resource imports. */
+  typeOwners: Map<string, string>;
+  /** Set of type names that live in `src/types/shared.ts`. */
+  sharedTypeNames: Set<string>;
 }
 
 /**
- * Emit a `declare namespace ResourceName` block that re-exports the types
- * used by this resource. Lets callers write `Pets.Pet`, `Spaces.SpaceListParams`,
- * etc. Mirrors Stainless's pattern for type discovery via IntelliSense.
- *
- * Returns empty string if the resource references no types.
+ * Emit a single resource file.
  */
-function emitNamespaceReExport(resource: ResourceNode): string {
-  const typeRefs = collectResourceTypeRefs(resource);
-  if (typeRefs.size === 0) return '';
-  const sorted = [...typeRefs].sort();
-  const reExports = sorted.map((t) => `    type ${t} as ${t},`).join('\n');
+export function emitResourceFile(resource: ResourceNode, ctx?: ResourceEmitContext): string {
+  const owned = ctx?.ownedTypes ?? [];
+  const imports = buildImports(resource, ctx);
+  const classBody = emitResourceClass(resource);
+  const inlineTypes = owned.length > 0
+    ? owned.map(emitTypeDef).join('\n\n')
+    : '';
+  const ns = emitNamespaceReExport(resource, owned.map((t) => t.name));
+
+  return joinBlocks(fileHeader(), imports, classBody, inlineTypes, ns) + '\n';
+}
+
+/**
+ * Emit a `declare namespace ResourceName` block that re-exports types owned by
+ * this resource so callers can write `Spaces.Space`, `Spaces.SpaceList`, etc.
+ * Stainless emits this for owned types only (not for external/shared refs).
+ */
+function emitNamespaceReExport(resource: ResourceNode, ownedNames: string[]): string {
+  if (ownedNames.length === 0) return '';
+  const reExports = ownedNames
+    .slice()
+    .sort()
+    .map((t) => `    type ${t} as ${t},`)
+    .join('\n');
   return `export declare namespace ${resource.className} {
   export {
 ${reExports}
@@ -38,34 +57,33 @@ ${reExports}
 }
 
 /**
- * Build import statements for a resource file.
+ * Build import statements for a resource file. Type imports are split by owner:
+ *   - Owned by this resource → skipped (emitted inline below the class)
+ *   - Owned by another resource → imported from `./{otherResource}.js`
+ *   - Shared (unowned) → imported from `../types/shared.js`
  */
-function buildImports(resource: ResourceNode): string {
+function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string {
   const lines: string[] = [
     `import { APIResource } from '../core/api-client.js';`,
     `import type { RequestOptions } from '../core/types.js';`,
   ];
 
-  // APIPromise is the default return type for non-streaming/non-paginated methods.
   const needsAPIPromise = resource.methods.some((m) => !m.streaming && !m.pagination);
   if (needsAPIPromise) {
     lines.push(`import { APIPromise } from '../core/api-promise.js';`);
   }
 
-  // `path` is the tagged template used for any method with path params.
   const needsPathTpl = resource.methods.some((m) => m.pathParams.length > 0);
   if (needsPathTpl) {
     lines.push(`import { path } from '../core/path.js';`);
   }
 
-  // Import child resource classes
   for (const child of resource.children) {
     lines.push(
       `import { ${child.className} } from './${camelCase(child.name)}/index.js';`,
     );
   }
 
-  // Check if we need pagination imports
   const hasCursorPagination = resource.methods.some((m) => m.pagination === 'cursor');
   const hasOffsetPagination = resource.methods.some((m) => m.pagination === 'offset');
   if (hasCursorPagination || hasOffsetPagination) {
@@ -75,17 +93,39 @@ function buildImports(resource: ResourceNode): string {
     lines.push(`import { ${paginationImports.join(', ')} } from '../core/pagination.js';`);
   }
 
-  // Check if we need streaming imports
   const hasStreaming = resource.methods.some((m) => m.streaming);
   if (hasStreaming) {
     lines.push(`import { Stream } from '../core/streaming.js';`);
   }
 
-  // Import referenced types
-  const typeRefs = collectResourceTypeRefs(resource);
-  if (typeRefs.size > 0) {
-    const sorted = [...typeRefs].sort();
-    lines.push(`import type { ${sorted.join(', ')} } from '../types/index.js';`);
+  // ── Type imports (split by owner) ──
+  const allRefs = collectResourceTypeRefs(resource);
+  const ownedNames = new Set((ctx?.ownedTypes ?? []).map((t) => t.name));
+  const ownerOf = ctx?.typeOwners ?? new Map<string, string>();
+  const shared = ctx?.sharedTypeNames ?? new Set<string>();
+
+  const fromOtherResource = new Map<string, string[]>(); // ownerResourceName → typeNames
+  const fromShared: string[] = [];
+
+  for (const ref of allRefs) {
+    if (ownedNames.has(ref)) continue; // inlined locally
+    const owner = ownerOf.get(ref);
+    if (owner && owner !== resource.name) {
+      const arr = fromOtherResource.get(owner) ?? [];
+      arr.push(ref);
+      fromOtherResource.set(owner, arr);
+    } else if (shared.has(ref)) {
+      fromShared.push(ref);
+    }
+  }
+
+  // Stable, alphabetized
+  for (const owner of [...fromOtherResource.keys()].sort()) {
+    const names = fromOtherResource.get(owner)!.slice().sort();
+    lines.push(`import type { ${names.join(', ')} } from './${owner}.js';`);
+  }
+  if (fromShared.length > 0) {
+    lines.push(`import type { ${fromShared.slice().sort().join(', ')} } from '../types/shared.js';`);
   }
 
   return lines.join('\n');

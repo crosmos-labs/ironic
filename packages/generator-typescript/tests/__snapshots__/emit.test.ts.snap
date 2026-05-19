@@ -53,7 +53,7 @@ import type { RequestOptions } from '../core/types.js';
 import { APIPromise } from '../core/api-promise.js';
 import { path } from '../core/path.js';
 import { CursorPage } from '../core/pagination.js';
-import type { Pet, PetCreateParams, PetListPetsParams, PetUpdateParams } from '../types/index.js';
+import type { Pet, PetCreateParams, PetUpdateParams } from '../types/shared.js';
 
 export class Pets extends APIResource {
 
@@ -102,12 +102,20 @@ export class Pets extends APIResource {
   }
 }
 
+export interface ListPetsResponse {
+  data: Pet[];
+  has_more: boolean;
+}
+
+export interface PetListPetsParams {
+  after?: string;
+  limit?: number;
+}
+
 export declare namespace Pets {
   export {
-    type Pet as Pet,
-    type PetCreateParams as PetCreateParams,
+    type ListPetsResponse as ListPetsResponse,
     type PetListPetsParams as PetListPetsParams,
-    type PetUpdateParams as PetUpdateParams,
   };
 }
 "

@@ -139,6 +139,33 @@ function resourceClassName(resourceName: string, raw: Record<string, unknown> | 
 }
 
 /**
+ * Walk the resources block and produce a `FinalTypeName → owningResourceName`
+ * map. Used by the type collector to attribute component-derived types to the
+ * resource they belong to so they can be emitted inline in the resource file
+ * (Stainless's convention).
+ *
+ * Example: `spaces.models.space: '#/components/schemas/SpaceResponse'` →
+ *          `{ Space: 'spaces' }`.
+ */
+export function collectModelOwnership(config: IronicConfig): Record<string, string> {
+  const owners: Record<string, string> = {};
+  if (!config.resources) return owners;
+  const walk = (defs: Record<string, unknown>) => {
+    for (const [resourceName, raw] of Object.entries(defs)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const norm = normalizeResource(resourceName, raw as Record<string, unknown>);
+      for (const localName of norm.models.keys()) {
+        owners[pascalCase(localName)] = camelCase(resourceName);
+      }
+      const subRaw = (raw as Record<string, unknown>).subresources;
+      if (subRaw && typeof subRaw === 'object') walk(subRaw as Record<string, unknown>);
+    }
+  };
+  walk(config.resources as Record<string, unknown>);
+  return owners;
+}
+
+/**
  * Walk Stainless's resources block (with subresources) and return the union of
  * model rename mappings: `OriginalSchemaName → LocalModelPascalCase`.
  * e.g. `SpaceResponse → Space`, `SpaceListResponse → SpaceList`.
@@ -243,9 +270,8 @@ function buildConfigResource(
     children: [],
   };
 
-  // Build methods (sorted by method name for stable output)
-  const sortedMethods = [...norm.methods.entries()].sort(([a], [b]) => a.localeCompare(b));
-  for (const [methodName, methodDef] of sortedMethods) {
+  // Preserve declaration order from the config (Stainless convention).
+  for (const [methodName, methodDef] of norm.methods.entries()) {
     const operation = findOperation(spec, methodDef.httpMethod, methodDef.path);
     if (!operation) {
       throw new IronicUserError(

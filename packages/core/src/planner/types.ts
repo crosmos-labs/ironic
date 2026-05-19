@@ -8,6 +8,7 @@ import type { IronicConfig } from '../parser/config.schema.js';
 import { pascalCase } from '../utils/naming.js';
 import { schemaToTypeRef } from '../utils/schema.js';
 import { buildSchemaRenames } from './type-naming.js';
+import { collectModelOwnership } from './resources.js';
 
 /**
  * The synthesized name for a method's query-params interface:
@@ -45,6 +46,10 @@ export function collectTypes(
     (spec as ParsedSpec & { _renames?: Record<string, string> })._renames ??
     buildSchemaRenames(Object.keys(spec.schemas), {});
 
+  // Owner map: final type name → owning resource name (camelCase). Drives
+  // inline emission per Stainless convention; unowned types go to types/shared.ts.
+  const ownership = collectModelOwnership(config);
+
   // 1. Emit all component schemas under their final names.
   for (const [schemaName, schema] of Object.entries(spec.schemas).sort(([a], [b]) => a.localeCompare(b))) {
     const finalName = renames[schemaName] ?? pascalCase(schemaName);
@@ -56,6 +61,7 @@ export function collectTypes(
       type: emitComponentBody(schema, finalName, spec.schemaRegistry),
       description: schema.description,
       isRequestBody: false,
+      resourceName: ownership[finalName],
     });
   }
 

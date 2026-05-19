@@ -46,11 +46,13 @@ describe('TypeScript generator (petstore)', () => {
     const files = emit(ir);
 
     const pets = files.get('src/resources/pets.ts')!;
-    // Should import types
-    expect(pets).toContain("import type { Pet, PetCreateParams, PetListPetsParams, PetUpdateParams } from '../types/index.js'");
-    // Method signatures should use refs, not inlined objects
+    // Shared types (no models: block in petstore.yml) come from shared.
+    expect(pets).toContain("from '../types/shared.js'");
+    // Method signatures should use refs, not inlined objects.
     expect(pets).toContain('body: PetCreateParams, options?: RequestOptions): APIPromise<Pet>');
     expect(pets).toContain('Promise<Pet>');
+    // PetListPetsParams is now inlined as it's owned by the resource.
+    expect(pets).toContain('export interface PetListPetsParams');
   });
 
   it('shared types file contains expected interfaces', async () => {
