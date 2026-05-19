@@ -49,6 +49,32 @@ export interface IRMeta {
     responseProperty?: string;
     assignTo?: string;
   }>;
+  /** Client constructor options declared in `client_settings.opts`. */
+  clientOpts?: ClientOpt[];
+}
+
+/**
+ * A single client-constructor option (Stainless `client_settings.opts.<name>`).
+ */
+export interface ClientOpt {
+  /** Camel-cased identifier used in TypeScript code (e.g. `apiKey`). */
+  tsName: string;
+  /** Original snake_case key from the config (e.g. `api_key`). */
+  configName: string;
+  /** Primitive type to emit. */
+  type: 'string' | 'number' | 'integer' | 'boolean';
+  /** Description used in JSDoc. */
+  description?: string;
+  /** Whether `null` is a valid value. */
+  nullable?: boolean;
+  /** Environment variable to read from. */
+  readEnv?: string;
+  /** Indicates this opt provides credentials for a security scheme. */
+  auth?: { securityScheme: string; role?: 'value' | 'username' | 'password' | 'client_id' | 'client_secret' };
+  /** A literal default value (for non-required opts). */
+  default?: unknown;
+  /** Bound to a `{var}` placeholder in the environment URL. */
+  serverVariable?: string;
 }
 
 // ── Auth ──

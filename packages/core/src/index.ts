@@ -12,7 +12,7 @@ import { planPagination } from './planner/pagination.js';
 import { collectTypes } from './planner/types.js';
 import { buildSchemaRenames } from './planner/type-naming.js';
 import { applyTransforms } from './planner/transforms.js';
-import { pascalCase, upperSnakeCase } from './utils/naming.js';
+import { camelCase, pascalCase, upperSnakeCase } from './utils/naming.js';
 
 // ── Re-exports ──
 
@@ -146,6 +146,23 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
     typeof defaultTimeout === 'number'
       ? defaultTimeout
       : (defaultTimeout as { value?: number } | undefined)?.value ?? 60000;
+
+  // Client opts: each entry in `client_settings.opts` becomes a constructor option.
+  const clientOpts = config.client_settings?.opts
+    ? Object.entries(config.client_settings.opts).map(([name, opt]) => ({
+        tsName: camelCase(name),
+        configName: name,
+        type: (opt.type ?? 'string') as 'string' | 'number' | 'integer' | 'boolean',
+        description: opt.description,
+        nullable: opt.nullable,
+        readEnv: opt.read_env,
+        auth: opt.auth
+          ? { securityScheme: opt.auth.security_scheme, role: opt.auth.role }
+          : undefined,
+        default: opt.default,
+        serverVariable: opt.server_variable,
+      }))
+    : undefined;
 
   // Example requests from config.readme — surface as a stable array on the IR.
   const exampleRequests = config.readme?.example_requests
