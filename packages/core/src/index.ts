@@ -147,6 +147,17 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
       ? defaultTimeout
       : (defaultTimeout as { value?: number } | undefined)?.value ?? 60000;
 
+  // Example requests from config.readme — surface as a stable array on the IR.
+  const exampleRequests = config.readme?.example_requests
+    ? Object.entries(config.readme.example_requests).map(([name, ex]) => ({
+        name,
+        endpoint: ex.endpoint,
+        params: ex.params,
+        responseProperty: ex.response_property,
+        assignTo: ex.assign_to,
+      }))
+    : undefined;
+
   const meta = {
     packageName,
     prettyName: pascalCase(baseName),
@@ -158,6 +169,15 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
     timeoutMs,
     maxRetries: config.client_settings?.default_retries?.max_retries ?? 2,
     userAgentPrefix: undefined,
+    license: config.settings?.license,
+    organization: config.organization
+      ? {
+          name: config.organization.name,
+          docs: config.organization.docs ?? config.organization.docs_url,
+          contact: config.organization.contact ?? config.organization.contact_email,
+        }
+      : undefined,
+    exampleRequests,
   };
 
   return { meta, auth, resources, types, paginationSchemes };

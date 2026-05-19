@@ -8,7 +8,7 @@ import type { IR, ResourceNode, TypeDef } from '@ironic/core';
 import { emitClientFile } from './emitters/client.js';
 import { emitResourceFile } from './emitters/resource.js';
 import { emitTypesFile, emitTypeDef } from './emitters/types.js';
-import { emitPackageJson, emitTsConfig, emitReadme } from './emitters/package-json.js';
+import { emitPackageJson, emitTsConfig, emitReadme, emitLicense } from './emitters/package-json.js';
 import { fileHeader } from './snippets/formatters.js';
 
 /** Map from relative file path → file contents */
@@ -30,6 +30,8 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   files.set('package.json', emitPackageJson(ir));
   files.set('tsconfig.json', emitTsConfig());
   files.set('README.md', emitReadme(ir));
+  const licenseText = emitLicense(ir);
+  if (licenseText) files.set('LICENSE', licenseText);
 
   // 2. Copy runtime files into src/core/
   copyRuntimeFiles(files, options.runtimeSrcDir, ir);

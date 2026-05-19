@@ -33,6 +33,22 @@ export interface IRMeta {
   maxRetries: number;
   /** User-Agent prefix */
   userAgentPrefix?: string;
+  /** SPDX license identifier (e.g. "Apache-2.0", "MIT"). Stamped into package.json + LICENSE. */
+  license?: string;
+  /** Optional organization/author info for README + LICENSE. */
+  organization?: {
+    name?: string;
+    docs?: string;
+    contact?: string;
+  };
+  /** Example requests rendered into the README's Usage section. */
+  exampleRequests?: Array<{
+    name: string;
+    endpoint: string;
+    params?: Record<string, unknown>;
+    responseProperty?: string;
+    assignTo?: string;
+  }>;
 }
 
 // ── Auth ──
