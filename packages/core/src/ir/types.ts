@@ -137,7 +137,7 @@ export type TypeRef =
 
 export interface PrimitiveTypeRef {
   kind: 'primitive';
-  type: 'string' | 'number' | 'boolean' | 'null' | 'unknown' | 'void';
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'null' | 'unknown' | 'void';
 }
 
 export interface ObjectTypeRef {
