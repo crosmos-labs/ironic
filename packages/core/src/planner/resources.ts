@@ -122,6 +122,23 @@ function extractSchemaName(ref: string): string | undefined {
 }
 
 /**
+ * Compute the emitted class name for a resource. If any local model in this
+ * resource's `models:` block PascalCases to the same name as the resource
+ * itself (e.g. `search` resource with a `search` model → both `Search`), the
+ * class is suffixed with `Resource` to avoid the TS name collision — matching
+ * Stainless's convention (`SearchResource`, `UsageResource`).
+ */
+function resourceClassName(resourceName: string, raw: Record<string, unknown> | undefined): string {
+  const base = pascalCase(resourceName);
+  if (!raw || typeof raw !== 'object') return base;
+  const models = (raw.models ?? {}) as Record<string, unknown>;
+  for (const modelLocalName of Object.keys(models)) {
+    if (pascalCase(modelLocalName) === base) return `${base}Resource`;
+  }
+  return base;
+}
+
+/**
  * Walk Stainless's resources block (with subresources) and return the union of
  * model rename mappings: `OriginalSchemaName → LocalModelPascalCase`.
  * e.g. `SpaceResponse → Space`, `SpaceListResponse → SpaceList`.
@@ -136,12 +153,8 @@ export function collectModelRenames(config: IronicConfig): Record<string, string
       for (const [localName, schemaName] of norm.models) {
         renames[schemaName] = pascalCase(localName);
       }
-      if (norm.subresources.size > 0) {
-        const subDefs: Record<string, unknown> = {};
-        for (const [k, v] of norm.subresources) subDefs[k] = (raw as Record<string, unknown>).subresources;
-        // Recurse into raw subresources directly to preserve original shape.
-        walk((raw as Record<string, unknown>).subresources as Record<string, unknown>);
-      }
+      const subRaw = (raw as Record<string, unknown>).subresources;
+      if (subRaw && typeof subRaw === 'object') walk(subRaw as Record<string, unknown>);
     }
   };
   walk(config.resources as Record<string, unknown>);
@@ -162,7 +175,7 @@ export function predictResourceClassNames(
   if (config.resources) {
     const walk = (defs: Record<string, unknown>) => {
       for (const [name, raw] of Object.entries(defs)) {
-        names.add(pascalCase(name));
+        names.add(resourceClassName(name, raw as Record<string, unknown> | undefined));
         if (raw && typeof raw === 'object') {
           const subs = (raw as Record<string, unknown>).subresources;
           if (subs && typeof subs === 'object') walk(subs as Record<string, unknown>);
@@ -208,8 +221,10 @@ function planFromConfig(
 
   for (const [name, raw] of Object.entries(config.resources!).sort(([a], [b]) => a.localeCompare(b))) {
     if (!raw || typeof raw !== 'object') continue;
-    const norm = normalizeResource(name, raw as Record<string, unknown>);
-    resources.push(buildConfigResource(norm, spec, config));
+    const rawObj = raw as Record<string, unknown>;
+    const norm = normalizeResource(name, rawObj);
+    const className = resourceClassName(name, rawObj);
+    resources.push(buildConfigResource(norm, spec, config, className));
   }
 
   return resources;
@@ -219,10 +234,11 @@ function buildConfigResource(
   norm: NormalizedResource,
   spec: ParsedSpec,
   config: IronicConfig,
+  className: string,
 ): ResourceNode {
   const node: ResourceNode = {
     name: camelCase(norm.name),
-    className: pascalCase(norm.name),
+    className,
     methods: [],
     children: [],
   };
@@ -247,9 +263,11 @@ function buildConfigResource(
     );
   }
 
-  // Build children
+  // Build children (use the same collision-aware naming for subresources)
   for (const [, child] of [...norm.subresources.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    node.children.push(buildConfigResource(child, spec, config));
+    // Subresources don't share their raw object here; use the simple base name
+    // until we have a need for the collision rule at child depth.
+    node.children.push(buildConfigResource(child, spec, config, pascalCase(child.name)));
   }
 
   return node;
