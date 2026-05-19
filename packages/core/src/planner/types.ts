@@ -7,6 +7,7 @@ import type { ParsedSpec } from '../parser/openapi.js';
 import type { IronicConfig } from '../parser/config.schema.js';
 import { pascalCase } from '../utils/naming.js';
 import { schemaToTypeRef } from '../utils/schema.js';
+import { buildSchemaRenames } from './type-naming.js';
 
 /**
  * The synthesized name for a method's query-params interface:
@@ -33,14 +34,15 @@ export function collectTypes(
   config: IronicConfig,
 ): TypeDef[] {
   const types = new Map<string, TypeDef>();
-  const renames = config.types?.rename ?? {};
 
-  // 1. Emit all component schemas.
-  // We pass the registry so cross-references between components emit as
-  // RefTypeRef (e.g. EntityDetailResponse.memories.items → EntityMemory)
-  // instead of being inlined as anonymous objects. We do a registry lookup
-  // against the *outer* schema separately so a schema doesn't resolve to
-  // itself — `schemaToTypeRef(s, n, registry)` would short-circuit to `s.ref`.
+  // The rename map was applied to the registry in the top-level `plan()` call.
+  // We re-derive it here only to compute the *emit name* per schema; it must
+  // match what's already in the registry.
+  const renames =
+    (spec as ParsedSpec & { _renames?: Record<string, string> })._renames ??
+    buildSchemaRenames(Object.keys(spec.schemas), config.types?.rename ?? {});
+
+  // 1. Emit all component schemas under their final names.
   for (const [schemaName, schema] of Object.entries(spec.schemas).sort(([a], [b]) => a.localeCompare(b))) {
     const finalName = renames[schemaName] ?? pascalCase(schemaName);
 

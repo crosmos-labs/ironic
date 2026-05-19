@@ -2,7 +2,7 @@
 // Emit the main SDK client class.
 
 import type { IR, ResourceNode } from '@ironic/core';
-import { joinBlocks } from '../snippets/formatters.js';
+import { joinBlocks, fileHeader } from '../snippets/formatters.js';
 
 /**
  * Emit the main client.ts file.
@@ -12,7 +12,7 @@ export function emitClientFile(ir: IR): string {
   const clientClass = buildClientClass(ir);
   const optionsType = buildOptionsType(ir);
 
-  return joinBlocks(imports, optionsType, clientClass) + '\n';
+  return joinBlocks(fileHeader(), imports, optionsType, clientClass) + '\n';
 }
 
 function buildImports(ir: IR): string {

@@ -39,3 +39,8 @@ export function jsdoc(description?: string, params?: { name: string; description
   lines.push(' */');
   return lines.join('\n');
 }
+
+/** Generated-by header prepended to every emitted .ts file. */
+export function fileHeader(): string {
+  return '// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.';
+}

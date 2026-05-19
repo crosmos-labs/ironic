@@ -1,3 +1,5 @@
+// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
+
 import { BaseClient } from './core/api-client.js';
 import type { ClientOptions } from './core/types.js';
 import { Owners } from './resources/owners.js';

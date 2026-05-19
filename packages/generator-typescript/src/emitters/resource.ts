@@ -4,7 +4,7 @@
 import type { ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/core';
 import { camelCase } from '@ironic/core';
 import { emitTypeRef } from './types.js';
-import { indent, jsdoc, joinBlocks } from '../snippets/formatters.js';
+import { indent, jsdoc, joinBlocks, fileHeader } from '../snippets/formatters.js';
 import { collectResourceTypeRefs } from '../snippets/type-refs.js';
 
 /**
@@ -13,8 +13,28 @@ import { collectResourceTypeRefs } from '../snippets/type-refs.js';
 export function emitResourceFile(resource: ResourceNode): string {
   const imports = buildImports(resource);
   const classBody = emitResourceClass(resource);
+  const ns = emitNamespaceReExport(resource);
 
-  return joinBlocks(imports, classBody) + '\n';
+  return joinBlocks(fileHeader(), imports, classBody, ns) + '\n';
+}
+
+/**
+ * Emit a `declare namespace ResourceName` block that re-exports the types
+ * used by this resource. Lets callers write `Pets.Pet`, `Spaces.SpaceListParams`,
+ * etc. Mirrors Stainless's pattern for type discovery via IntelliSense.
+ *
+ * Returns empty string if the resource references no types.
+ */
+function emitNamespaceReExport(resource: ResourceNode): string {
+  const typeRefs = collectResourceTypeRefs(resource);
+  if (typeRefs.size === 0) return '';
+  const sorted = [...typeRefs].sort();
+  const reExports = sorted.map((t) => `    type ${t} as ${t},`).join('\n');
+  return `export declare namespace ${resource.className} {
+  export {
+${reExports}
+  };
+}`;
 }
 
 /**
@@ -30,6 +50,12 @@ function buildImports(resource: ResourceNode): string {
   const needsAPIPromise = resource.methods.some((m) => !m.streaming && !m.pagination);
   if (needsAPIPromise) {
     lines.push(`import { APIPromise } from '../core/api-promise.js';`);
+  }
+
+  // `path` is the tagged template used for any method with path params.
+  const needsPathTpl = resource.methods.some((m) => m.pathParams.length > 0);
+  if (needsPathTpl) {
+    lines.push(`import { path } from '../core/path.js';`);
   }
 
   // Import child resource classes
@@ -129,11 +155,12 @@ function buildMethodSignature(method: MethodNode): string {
   }
 
   // Query params: prefer the named *Params interface if synthesized.
+  // Also accept `null` for callers that want to be explicit about "no query".
   if (method.queryParamsTypeName) {
-    params.push(`query?: ${method.queryParamsTypeName}`);
+    params.push(`query?: ${method.queryParamsTypeName} | null`);
   } else if (method.queryParams.length > 0) {
     const queryType = buildQueryParamsType(method.queryParams);
-    params.push(`query?: ${queryType}`);
+    params.push(`query?: ${queryType} | null`);
   }
 
   // Per-call request options (headers, timeout, signal, maxRetries).
@@ -194,17 +221,20 @@ function buildMethodBody(method: MethodNode): string {
 }
 
 /**
- * Build a path expression, substituting path params.
- * "/files/{file_id}" → `\`/files/${fileId}\``
+ * Build a path expression, substituting path params. Uses the `path` tagged
+ * template from the runtime so values get URI-encoded (otherwise a param
+ * containing `/` or `?` would corrupt the URL).
+ *
+ *   "/files/{file_id}" with one param → path`/files/${fileId}`
  */
-function buildPathExpression(path: string, pathParams: ParamNode[]): string {
-  if (pathParams.length === 0) return `'${path}'`;
+function buildPathExpression(specPath: string, pathParams: ParamNode[]): string {
+  if (pathParams.length === 0) return `'${specPath}'`;
 
-  let template = path;
+  let template = specPath;
   for (const param of pathParams) {
     template = template.replace(`{${param.name}}`, `\${${param.tsName}}`);
   }
-  return `\`${template}\``;
+  return `path\`${template}\``;
 }
 
 /**

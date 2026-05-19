@@ -1,5 +1,5 @@
 import type { TypeDef, TypeRef } from '@ironic/core';
-import { jsdoc, joinBlocks } from '../snippets/formatters.js';
+import { jsdoc, joinBlocks, fileHeader } from '../snippets/formatters.js';
 import { collectTypeRefs } from '../snippets/type-refs.js';
 
 /**
@@ -120,5 +120,5 @@ export function emitTypesFile(types: TypeDef[], allTypeNames?: Set<string>): str
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(emitTypeDef);
 
-  return imports + defs.join('\n\n') + '\n';
+  return fileHeader() + '\n\n' + imports + defs.join('\n\n') + '\n';
 }

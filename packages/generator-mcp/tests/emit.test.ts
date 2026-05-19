@@ -65,7 +65,7 @@ describe('MCP generator (petstore)', () => {
     const petsDocs = files.get('docs/pets.md')!;
     expect(petsDocs).toContain('| Name | Type | Required | Description |');
     expect(petsDocs).toContain('`petId`');
-    expect(petsDocs).toContain('`CreatePetRequest`');
+    expect(petsDocs).toContain('`PetCreateParams`');
   });
 
   it('snapshot: docs/pets.md', async () => {

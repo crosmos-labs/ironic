@@ -1,8 +1,11 @@
+// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
+
 import { APIResource } from '../core/api-client.js';
 import type { RequestOptions } from '../core/types.js';
 import { APIPromise } from '../core/api-promise.js';
+import { path } from '../core/path.js';
 import { CursorPage } from '../core/pagination.js';
-import type { CreatePetRequest, Pet, PetListPetsParams, UpdatePetRequest } from '../types/index.js';
+import type { Pet, PetCreateParams, PetListPetsParams, PetUpdateParams } from '../types/index.js';
 
 export class Pets extends APIResource {
 
@@ -12,7 +15,7 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  createPet(body: CreatePetRequest, options?: RequestOptions): APIPromise<Pet> {
+  createPet(body: PetCreateParams, options?: RequestOptions): APIPromise<Pet> {
     return this._client.post('/pets', { ...options, body });
   }
 
@@ -21,7 +24,7 @@ export class Pets extends APIResource {
    */
 
   deletePet(petId: string, options?: RequestOptions): APIPromise<void> {
-    return this._client.delete(`/pets/${petId}`, { ...options });
+    return this._client.delete(path`/pets/${petId}`, { ...options });
   }
 
   /**
@@ -29,14 +32,14 @@ export class Pets extends APIResource {
    */
 
   getPet(petId: string, options?: RequestOptions): APIPromise<Pet> {
-    return this._client.get(`/pets/${petId}`, { ...options });
+    return this._client.get(path`/pets/${petId}`, { ...options });
   }
 
   /**
    * Returns a paginated list of pets.
    */
 
-  async listPets(query?: PetListPetsParams, options?: RequestOptions): Promise<CursorPage<Pet>> {
+  async listPets(query?: PetListPetsParams | null, options?: RequestOptions): Promise<CursorPage<Pet>> {
     return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { ...options, query });
   }
 
@@ -46,7 +49,16 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  updatePet(petId: string, body: UpdatePetRequest, options?: RequestOptions): APIPromise<Pet> {
-    return this._client.patch(`/pets/${petId}`, { ...options, body });
+  updatePet(petId: string, body: PetUpdateParams, options?: RequestOptions): APIPromise<Pet> {
+    return this._client.patch(path`/pets/${petId}`, { ...options, body });
   }
+}
+
+export declare namespace Pets {
+  export {
+    type Pet as Pet,
+    type PetCreateParams as PetCreateParams,
+    type PetListPetsParams as PetListPetsParams,
+    type PetUpdateParams as PetUpdateParams,
+  };
 }

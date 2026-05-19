@@ -20,6 +20,7 @@ export { AbstractPage, CursorPage, OffsetPage } from './pagination.js';
 export type { PageClient } from './pagination.js';
 export { Stream, sseDecoder, createSSEStream } from './streaming.js';
 export { buildFormData, isUploadable } from './uploads.js';
+export { path } from './path.js';
 export type {
   ClientOptions,
   RequestOptions,

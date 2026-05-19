@@ -20,6 +20,42 @@ import { IronicUserError } from '../errors.js';
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
 /**
+ * Predict the resource class names that planResources() will produce, without
+ * walking schemas. Used by the type rename pass to avoid colliding a renamed
+ * schema (e.g. `SearchResponse` → `Search`) with a resource class of the same
+ * name. Mirrors the inference logic in planFromInference but skips method work.
+ */
+export function predictResourceClassNames(
+  config: IronicConfig,
+  spec: ParsedSpec,
+): string[] {
+  const names = new Set<string>();
+
+  if (config.resources) {
+    const walk = (defs: Record<string, { children?: typeof defs }>) => {
+      for (const [name, def] of Object.entries(defs)) {
+        names.add(pascalCase(name));
+        if (def.children) walk(def.children);
+      }
+    };
+    walk(config.resources as Record<string, { children?: Record<string, never> }>);
+    return [...names];
+  }
+
+  const prefix = resolvePathPrefix(config, Object.keys(spec.paths));
+  for (const [path, pathItem] of Object.entries(spec.paths)) {
+    for (const httpMethod of HTTP_METHODS) {
+      if (!(pathItem as Record<string, unknown>)[httpMethod]) continue;
+      const segments = getResourceSegments(path, prefix);
+      if (segments[0]) names.add(pascalCase(segments[0]));
+      // Sub-resources surface as nested classes too.
+      if (segments[1]) names.add(pascalCase(segments[1]));
+    }
+  }
+  return [...names];
+}
+
+/**
  * Build the resource tree from config + spec.
  */
 export function planResources(

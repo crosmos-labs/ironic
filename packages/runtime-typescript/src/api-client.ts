@@ -24,6 +24,27 @@ function isRetryableError(err: unknown): boolean {
 }
 
 /**
+ * Return RequestOptions with `name` set to `value` only if the caller didn't
+ * already pass that header (case-insensitive). Lets DELETE default Accept
+ * without overriding a user-supplied value.
+ */
+function withDefaultHeader(
+  options: RequestOptions | undefined,
+  name: string,
+  value: string,
+): RequestOptions {
+  const existing = options?.headers;
+  const hasHeader = (() => {
+    if (!existing) return false;
+    if (existing instanceof Headers) return existing.has(name);
+    if (Array.isArray(existing)) return existing.some(([k]) => k.toLowerCase() === name.toLowerCase());
+    return Object.keys(existing).some((k) => k.toLowerCase() === name.toLowerCase());
+  })();
+  if (hasHeader) return options ?? {};
+  return { ...options, headers: { [name]: value, ...(existing as Record<string, HeaderValue> | undefined) } };
+}
+
+/**
  * Base client that all generated SDK clients extend.
  * Handles authentication, retries, timeouts, and request building.
  */
@@ -65,7 +86,10 @@ export class BaseClient implements PageClient {
   }
 
   delete<T>(path: string, options?: RequestOptions): APIPromise<T> {
-    return this._call<T>('DELETE', path, options);
+    // DELETE often returns 204 with no body; some servers also serve a
+    // non-JSON body unless `Accept: */*` is explicitly set. The default
+    // `Accept: application/json` would otherwise reject empty responses.
+    return this._call<T>('DELETE', path, withDefaultHeader(options, 'Accept', '*/*'));
   }
 
   private _call<T>(method: string, path: string, options?: RequestOptions): APIPromise<T> {
@@ -207,8 +231,8 @@ export class BaseClient implements PageClient {
     return base * jitter;
   }
 
-  private _buildURL(path: string, query?: object): string {
-    const merged = { ...this.defaultQuery, ...(query as Record<string, unknown>) };
+  private _buildURL(path: string, query?: object | null): string {
+    const merged = { ...this.defaultQuery, ...(query as Record<string, unknown> | null | undefined ?? {}) };
     const url = new URL(path.startsWith('/') ? `${this.baseURL}${path}` : path);
 
     for (const [key, value] of Object.entries(merged)) {

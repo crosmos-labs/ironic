@@ -1,13 +1,4 @@
-/**
- * Request body for creating a pet.
- */
-
-export interface CreatePetRequest {
-  age?: number;
-  name: string;
-  species: 'dog' | 'cat' | 'bird' | 'fish';
-  tags?: string[];
-}
+// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
 
 /**
  * A pet owner.
@@ -44,10 +35,21 @@ export interface Pet {
 }
 
 /**
+ * Request body for creating a pet.
+ */
+
+export interface PetCreateParams {
+  age?: number;
+  name: string;
+  species: 'dog' | 'cat' | 'bird' | 'fish';
+  tags?: string[];
+}
+
+/**
  * Request body for updating a pet.
  */
 
-export interface UpdatePetRequest {
+export interface PetUpdateParams {
   age?: number;
   name?: string;
   status?: 'available' | 'pending' | 'sold';

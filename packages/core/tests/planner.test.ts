@@ -38,11 +38,11 @@ describe('plan (petstore)', () => {
     const pets = ir.resources.find((r) => r.name === 'pets')!;
     const createPet = pets.methods.find((m) => m.name === 'createPet')!;
 
-    // Should be a ref to CreatePetRequest, not an inline object
+    // Should be a ref to PetCreateParams, not an inline object
     expect(createPet.requestBody).toBeDefined();
     expect(createPet.requestBody!.kind).toBe('ref');
     if (createPet.requestBody!.kind === 'ref') {
-      expect(createPet.requestBody!.name).toBe('CreatePetRequest');
+      expect(createPet.requestBody!.name).toBe('PetCreateParams');
     }
   });
 
@@ -90,8 +90,26 @@ describe('plan (petstore)', () => {
     // Should include named component schemas
     expect(typeNames).toContain('Pet');
     expect(typeNames).toContain('Owner');
-    expect(typeNames).toContain('CreatePetRequest');
-    expect(typeNames).toContain('UpdatePetRequest');
+    expect(typeNames).toContain('PetCreateParams');
+    expect(typeNames).toContain('PetUpdateParams');
+  });
+
+  it('preserves named refs in nested array properties', async () => {
+    // Regression: component schemas used to be emitted via schemaToTypeRef
+    // without the registry, so cross-references inside array `items` got
+    // inlined as anonymous objects. With the fix, an inline `{ data: Owner[] }`
+    // response keeps `Owner` as a ref, not a duplicated inline shape.
+    const { config, spec } = await parse(PETSTORE_CONFIG);
+    const ir = plan(config, spec);
+
+    const listResponse = ir.types.find((t) => t.name === 'ListOwnersResponse');
+    expect(listResponse).toBeDefined();
+    expect(listResponse!.type.kind).toBe('object');
+    const obj = listResponse!.type as { kind: 'object'; properties: Record<string, { type: { kind: string; items?: { kind: string; name?: string } } }> };
+    const dataItems = obj.properties.data?.type;
+    expect(dataItems?.kind).toBe('array');
+    expect(dataItems?.items?.kind).toBe('ref');
+    expect(dataItems?.items?.name).toBe('Owner');
   });
 
   it('sets correct meta', async () => {

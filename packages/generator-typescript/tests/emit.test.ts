@@ -46,9 +46,9 @@ describe('TypeScript generator (petstore)', () => {
 
     const pets = files.get('src/resources/pets.ts')!;
     // Should import types
-    expect(pets).toContain("import type { CreatePetRequest, Pet, PetListPetsParams, UpdatePetRequest } from '../types/index.js'");
+    expect(pets).toContain("import type { Pet, PetCreateParams, PetListPetsParams, PetUpdateParams } from '../types/index.js'");
     // Method signatures should use refs, not inlined objects
-    expect(pets).toContain('body: CreatePetRequest, options?: RequestOptions): APIPromise<Pet>');
+    expect(pets).toContain('body: PetCreateParams, options?: RequestOptions): APIPromise<Pet>');
     expect(pets).toContain('Promise<Pet>');
   });
 
@@ -60,8 +60,8 @@ describe('TypeScript generator (petstore)', () => {
     const shared = files.get('src/types/shared.ts')!;
     expect(shared).toContain('export interface Pet {');
     expect(shared).toContain('export interface Owner {');
-    expect(shared).toContain('export interface CreatePetRequest {');
-    expect(shared).toContain('export interface UpdatePetRequest {');
+    expect(shared).toContain('export interface PetCreateParams {');
+    expect(shared).toContain('export interface PetUpdateParams {');
   });
 
   it('per-resource type files import from shared', async () => {

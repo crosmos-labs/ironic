@@ -6,10 +6,11 @@ import type { IronicConfig } from './parser/config.schema.js';
 import type { ParsedSpec } from './parser/openapi.js';
 import { parseConfig, defaultConfig } from './parser/config.js';
 import { parseOpenAPI } from './parser/openapi.js';
-import { planResources } from './planner/resources.js';
+import { planResources, predictResourceClassNames } from './planner/resources.js';
 import { planAuth } from './planner/auth.js';
 import { planPagination } from './planner/pagination.js';
 import { collectTypes } from './planner/types.js';
+import { buildSchemaRenames } from './planner/type-naming.js';
 import { pascalCase, upperSnakeCase } from './utils/naming.js';
 
 // ── Re-exports ──
@@ -90,6 +91,11 @@ export async function parse(configPath: string): Promise<{
  * Build the full IR from parsed config + spec.
  */
 export function plan(config: IronicConfig, spec: ParsedSpec): IR {
+  // Rename component schemas (SpaceResponse → Space, CreateSpaceRequest →
+  // SpaceCreateParams, etc.) BEFORE planning resources, so every RefTypeRef
+  // produced by the method planner already uses the final name.
+  applySchemaRenames(spec, config);
+
   const resources = planResources(config, spec);
   const auth = planAuth(config, spec);
   const paginationSchemes = planPagination(config);
@@ -135,4 +141,36 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
 export async function generate(configPath: string): Promise<IR> {
   const { config, spec } = await parse(configPath);
   return plan(config, spec);
+}
+
+/**
+ * Rewrite the schemaRegistry in place so component schemas resolve to their
+ * renamed identifiers everywhere downstream (RefTypeRefs in resource methods,
+ * the type collector's emit pass, etc.). Caches the rename map on the spec
+ * so `collectTypes` doesn't recompute it.
+ */
+function applySchemaRenames(spec: ParsedSpec, config: IronicConfig): void {
+  // Reserve resource class names so e.g. SearchResponse → Search doesn't
+  // collide with `export class Search extends APIResource`.
+  const reserved = predictResourceClassNames(config, spec);
+  const renames = buildSchemaRenames(
+    Object.keys(spec.schemas),
+    config.types?.rename ?? {},
+    reserved,
+  );
+
+  // Update the registry: it stores object identity → final name, so we
+  // walk every entry and apply the rename if the *original* PascalCased
+  // name matches a rename source.
+  const originals = new Map<string, string>(); // original PascalCase → rename target
+  for (const [orig, target] of Object.entries(renames)) {
+    originals.set(pascalCase(orig), target);
+  }
+  for (const [obj, currentName] of spec.schemaRegistry) {
+    const renamed = originals.get(currentName);
+    if (renamed) spec.schemaRegistry.set(obj, renamed);
+  }
+
+  // Stash for collectTypes (avoids recomputing + lets us emit under final names).
+  (spec as ParsedSpec & { _renames?: Record<string, string> })._renames = renames;
 }
