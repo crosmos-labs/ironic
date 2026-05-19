@@ -2,11 +2,26 @@
 // Walk all resources and collect the TypeDefs to emit.
 
 import type { SchemaObject } from 'openapi3-ts/oas31';
-import type { ResourceNode, TypeDef, TypeRef } from '../ir/types.js';
+import type { MethodNode, ParamNode, ResourceNode, TypeDef, TypeRef } from '../ir/types.js';
 import type { ParsedSpec } from '../parser/openapi.js';
 import type { IronicConfig } from '../parser/config.schema.js';
 import { pascalCase } from '../utils/naming.js';
 import { schemaToTypeRef } from '../utils/schema.js';
+
+/**
+ * The synthesized name for a method's query-params interface:
+ *   spaces.list → SpaceListParams
+ *   memories.list → MemoryListParams
+ * Singular-resource prefix when possible; otherwise just the resource name.
+ */
+export function queryParamsTypeName(resourceClassName: string, methodName: string): string {
+  // Strip a trailing 's' from the resource (Spaces → Space, Memories → Memorie?)
+  // Imperfect for irregular plurals, so we use a small rule: trim 's', also handle 'ies' → 'y'.
+  let base = resourceClassName;
+  if (base.endsWith('ies') && base.length > 3) base = base.slice(0, -3) + 'y';
+  else if (base.endsWith('s') && base.length > 1) base = base.slice(0, -1);
+  return `${base}${pascalCase(methodName)}Params`;
+}
 
 /**
  * Collect all types that need to be emitted.
@@ -73,11 +88,45 @@ function walkResource(
         });
       }
     }
+
+    // Synthesize a *Params interface for methods with query params,
+    // and stash the name on the method so the emitter can reference it.
+    if (method.queryParams.length > 0) {
+      const name = queryParamsTypeName(resource.className, method.name);
+      if (!types.has(name)) {
+        types.set(name, {
+          name,
+          type: paramsToObjectTypeRef(method.queryParams),
+          isRequestBody: false,
+          resourceName,
+        });
+      }
+      method.queryParamsTypeName = name;
+    }
   }
 
   for (const child of resource.children) {
     walkResource(child, types, `${resourceName}.${child.name}`);
   }
+}
+
+/**
+ * Synthesize an ObjectTypeRef from query-param nodes so the emitter can render
+ * it as a normal interface.
+ */
+function paramsToObjectTypeRef(params: ParamNode[]): TypeRef {
+  const properties: Record<string, { type: TypeRef; required: boolean; description?: string }> = {};
+  for (const param of params) {
+    // Use the original spec name as the property key — that's what gets serialized
+    // onto the wire. The TypeScript-friendly `tsName` is for variable names, not
+    // structural keys.
+    properties[param.name] = {
+      type: param.type,
+      required: param.required,
+      description: param.description,
+    };
+  }
+  return { kind: 'object', properties };
 }
 
 /**

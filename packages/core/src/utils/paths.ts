@@ -119,21 +119,35 @@ export function inferMethodName(
   httpMethod: string,
   path: string,
   prefix?: string,
-  resourceDepth = 0,
+  resourceDepth?: number,
 ): string {
   const stripped = prefix ? stripPrefix(path, prefix) : stripVersionPrefix(path);
-  const allSegments = splitPathSegments(stripped);
-  // Skip the segments owned by the resource so we reason about the *tail*
-  // (the bit beyond the resource's own path).
-  const segments = allSegments.slice(resourceDepth);
-  const lastSegment = segments[segments.length - 1] ?? allSegments[allSegments.length - 1];
+  const segments = splitPathSegments(stripped);
+  const lastSegment = segments[segments.length - 1];
   const hasTrailingParam = lastSegment ? isPathParam(lastSegment) : false;
 
-  // Sub-action: any verb on `/resource[/{id}]/action` where `action` is a
-  // non-param tail segment beyond the resource itself.
-  const tailNonParams = segments.filter((s) => !isPathParam(s));
-  if (tailNonParams.length >= 1 && !isPathParam(lastSegment!)) {
-    return tailNonParams[tailNonParams.length - 1]!;
+  // When the caller tells us how many leading segments belong to the resource,
+  // the *tail* beyond them either disambiguates a sub-action or is empty.
+  //   /graph        depth=1 → tail=[]            → use verb (list)
+  //   /graph/stats  depth=1 → tail=['stats']     → 'stats'
+  //   /pets/{id}/cancel depth=1 → tail=['{id}','cancel'] → 'cancel'
+  if (resourceDepth !== undefined) {
+    const tail = segments.slice(resourceDepth);
+    const tailNonParams = tail.filter((s) => !isPathParam(s));
+    if (tailNonParams.length >= 1) {
+      return tailNonParams[tailNonParams.length - 1]!;
+    }
+    // empty tail or only path params → fall through to verb inference
+  }
+
+  // Legacy: POST /resource/{id}/verb → verb
+  if (
+    resourceDepth === undefined &&
+    httpMethod === 'post' &&
+    segments.length >= 3 &&
+    !isPathParam(lastSegment!)
+  ) {
+    return lastSegment!;
   }
 
   const method = httpMethod.toLowerCase();

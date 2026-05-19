@@ -77,6 +77,8 @@ export interface MethodNode {
   pathParams: ParamNode[];
   /** Query parameters */
   queryParams: ParamNode[];
+  /** Name of the synthesized params interface (set by the type collector when queryParams.length > 0) */
+  queryParamsTypeName?: string;
   /** Request body type (null if no body) */
   requestBody: TypeRef | null;
   /** Response type */
