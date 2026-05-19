@@ -11,6 +11,7 @@ import { planAuth } from './planner/auth.js';
 import { planPagination } from './planner/pagination.js';
 import { collectTypes } from './planner/types.js';
 import { buildSchemaRenames } from './planner/type-naming.js';
+import { applyTransforms } from './planner/transforms.js';
 import { pascalCase, upperSnakeCase } from './utils/naming.js';
 
 // ── Re-exports ──
@@ -72,6 +73,8 @@ export { planAuth } from './planner/auth.js';
 export { planPagination } from './planner/pagination.js';
 export { planMethod } from './planner/methods.js';
 export { collectTypes } from './planner/types.js';
+export { applyTransforms } from './planner/transforms.js';
+export type { Transform } from './parser/config.schema.js';
 
 // ── High-level API ──
 
@@ -91,6 +94,12 @@ export async function parse(configPath: string): Promise<{
  * Build the full IR from parsed config + spec.
  */
 export function plan(config: IronicConfig, spec: ParsedSpec): IR {
+  // 0. Apply user-declared transforms (spec mutation) before any planning.
+  //    Transforms run in declaration order and are purely spec → spec.
+  if (config.transforms && config.transforms.length > 0) {
+    applyTransforms(spec, config.transforms);
+  }
+
   // Rename component schemas (SpaceResponse → Space, CreateSpaceRequest →
   // SpaceCreateParams, etc.) BEFORE planning resources, so every RefTypeRef
   // produced by the method planner already uses the final name.

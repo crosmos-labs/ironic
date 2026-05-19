@@ -1,6 +1,9 @@
 export { BaseClient, APIResource } from './api-client.js';
 export { APIPromise } from './api-promise.js';
 export { path } from './path.js';
+export { buildHeaders, hasHeader } from './headers.js';
+export { readEnv } from './env.js';
+export { PACKAGE_NAME, VERSION } from './version.js';
 export * from './errors.js';
 export * from './pagination.js';
 export * from './streaming.js';

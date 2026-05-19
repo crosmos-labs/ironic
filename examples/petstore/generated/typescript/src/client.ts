@@ -2,11 +2,12 @@
 
 import { BaseClient } from './core/api-client.js';
 import type { ClientOptions } from './core/types.js';
+import { readEnv } from './core/env.js';
 import { Owners } from './resources/owners.js';
 import { Pets } from './resources/pets.js';
 
 export interface PetstoreClientOptions extends ClientOptions {
-  /** API key. Defaults to `process.env['PETSTORE_API_KEY']`. */
+  /** API key. Defaults to the PETSTORE_API_KEY environment variable. */
   apiKey?: string;
 }
 
@@ -21,7 +22,7 @@ export class PetstoreClient extends BaseClient {
     const opts = options as PetstoreClientOptions & { environment?: string };
     super({
       baseURL: options.baseURL ?? 'https://api.petstore.io/v1',
-      apiKey: options.apiKey ?? process.env['PETSTORE_API_KEY'] ?? '',
+      apiKey: options.apiKey ?? readEnv('PETSTORE_API_KEY') ?? '',
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeout ?? 30000,
       ...options,

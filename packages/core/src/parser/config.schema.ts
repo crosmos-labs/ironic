@@ -82,6 +82,40 @@ const MethodOverrideSchema = z.object({
   description_override: z.string().optional(),
 });
 
+// ── Transforms ──
+
+const TransformRenameSchemaSchema = z.object({
+  type: z.literal('rename_schema'),
+  from: z.string(),
+  to: z.string(),
+});
+
+const TransformDropEndpointSchema = z.object({
+  type: z.literal('drop_endpoint'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']),
+  path: z.string(),
+});
+
+const TransformExtractInlineSchemaSchema = z.object({
+  type: z.literal('extract_inline_schema'),
+  /** JSONPath-like locator: e.g. "POST /chat/completions.requestBody" */
+  location: z.string(),
+  to: z.string(),
+});
+
+const TransformDedupeSchemaSchema = z.object({
+  type: z.literal('dedupe_schemas'),
+});
+
+const TransformSchema = z.discriminatedUnion('type', [
+  TransformRenameSchemaSchema,
+  TransformDropEndpointSchema,
+  TransformExtractInlineSchemaSchema,
+  TransformDedupeSchemaSchema,
+]);
+
+export type Transform = z.infer<typeof TransformSchema>;
+
 // ── Main config schema ──
 
 export const ConfigSchema = z.object({
@@ -146,6 +180,8 @@ export const ConfigSchema = z.object({
   resources: z.record(ResourceSchema).optional(),
 
   methods: z.array(MethodOverrideSchema).optional(),
+
+  transforms: z.array(TransformSchema).optional(),
 
   types: z
     .object({

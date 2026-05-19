@@ -266,8 +266,13 @@ function buildMethods(
 }
 
 /**
- * Detect if an operation matches a configured pagination scheme.
- * Checks if query params match the cursor_param/limit_param from config.
+ * Detect if an operation matches a configured or heuristically-inferred pagination scheme.
+ *
+ * Priority: explicit config match → heuristic match.
+ * Heuristics (Tier 4):
+ *   - `limit`+`offset` query AND response has `count`/`total` → offset
+ *   - `after`/`cursor`+`limit` query AND response has `has_more`/`next_cursor` → cursor
+ *   - response has `next_cursor` AND an array field → cursor (no cursor param required)
  */
 function detectPagination(
   httpMethod: string,
@@ -275,30 +280,93 @@ function detectPagination(
   config?: IronicConfig,
 ): string | undefined {
   if (httpMethod.toLowerCase() !== 'get') return undefined;
-  if (!config?.pagination) return undefined;
 
   const params = (operation.parameters ?? []) as ParameterObject[];
   const queryNames = new Set(
     params.filter((p) => p.in === 'query').map((p) => p.name),
   );
 
-  // Check cursor pagination
-  if (config.pagination.cursor) {
-    const cursorParam = config.pagination.cursor.request.cursor_param;
-    if (queryNames.has(cursorParam)) {
-      return 'cursor';
+  // ── Explicit config match (highest priority) ──
+  if (config?.pagination) {
+    if (config.pagination.cursor) {
+      const cursorParam = config.pagination.cursor.request.cursor_param;
+      if (queryNames.has(cursorParam)) return 'cursor';
+    }
+    if (config.pagination.offset) {
+      const pageParam = config.pagination.offset.request.page_param;
+      if (queryNames.has(pageParam)) return 'offset';
     }
   }
 
-  // Check offset pagination
-  if (config.pagination.offset) {
-    const pageParam = config.pagination.offset.request.page_param;
-    if (queryNames.has(pageParam)) {
-      return 'offset';
-    }
+  // ── Heuristic match ──
+  const responseProps = getResponseProperties(operation);
+
+  // Offset heuristic: limit + offset params, response has count/total
+  if (
+    queryNames.has('limit') &&
+    queryNames.has('offset') &&
+    (responseProps.has('count') || responseProps.has('total'))
+  ) {
+    return 'offset';
+  }
+
+  // Cursor heuristic: after/cursor param + limit, response has has_more or next_cursor
+  const hasCursorParam = queryNames.has('after') || queryNames.has('cursor');
+  const hasCursorResponse = responseProps.has('has_more') || responseProps.has('next_cursor');
+  if (hasCursorParam && queryNames.has('limit') && hasCursorResponse) {
+    return 'cursor';
+  }
+
+  // 4.2: response has next_cursor + at least one array field → cursor even without cursor param
+  if (responseProps.has('next_cursor') && hasArrayField(operation)) {
+    return 'cursor';
   }
 
   return undefined;
+}
+
+/**
+ * Return the set of top-level property names from the operation's success response schema.
+ */
+function getResponseProperties(operation: OperationObject): Set<string> {
+  const responses = operation.responses ?? {};
+  const successCode =
+    Object.keys(responses).find((c) => c === '200') ??
+    Object.keys(responses).find((c) => c === '201') ??
+    Object.keys(responses).find((c) => c.startsWith('2'));
+  if (!successCode) return new Set();
+
+  const response = responses[successCode] as Record<string, unknown> | undefined;
+  const content = response?.content as Record<string, { schema?: Record<string, unknown> }> | undefined;
+  const schema = content?.['application/json']?.schema;
+  if (!schema || typeof schema !== 'object') return new Set();
+
+  const props = (schema as Record<string, unknown>).properties;
+  if (!props || typeof props !== 'object') return new Set();
+  return new Set(Object.keys(props as object));
+}
+
+/**
+ * Return true if the success response schema has at least one array-type property.
+ */
+function hasArrayField(operation: OperationObject): boolean {
+  const responses = operation.responses ?? {};
+  const successCode =
+    Object.keys(responses).find((c) => c === '200') ??
+    Object.keys(responses).find((c) => c === '201') ??
+    Object.keys(responses).find((c) => c.startsWith('2'));
+  if (!successCode) return false;
+
+  const response = responses[successCode] as Record<string, unknown> | undefined;
+  const content = response?.content as Record<string, { schema?: Record<string, unknown> }> | undefined;
+  const schema = content?.['application/json']?.schema;
+  if (!schema || typeof schema !== 'object') return false;
+
+  const props = (schema as Record<string, unknown>).properties as Record<string, unknown> | undefined;
+  if (!props) return false;
+  return Object.values(props).some(
+    (p) => typeof p === 'object' && p !== null && (p as Record<string, unknown>).type === 'array',
+  );
 }
 
 // ── Helpers ──
