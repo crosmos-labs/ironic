@@ -4,3 +4,7 @@ export interface ListOwnersResponse {
   data: Owner[];
   total: number;
 }
+
+export interface OwnerListOwnersParams {
+  limit?: number;
+}

@@ -196,8 +196,8 @@ export class BaseClient implements PageClient {
     return base * jitter;
   }
 
-  private _buildURL(path: string, query?: QueryParams): string {
-    const merged = { ...this.defaultQuery, ...query };
+  private _buildURL(path: string, query?: object): string {
+    const merged = { ...this.defaultQuery, ...(query as Record<string, unknown>) };
     const url = new URL(path.startsWith('/') ? `${this.baseURL}${path}` : path);
 
     for (const [key, value] of Object.entries(merged)) {

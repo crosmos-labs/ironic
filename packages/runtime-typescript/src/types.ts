@@ -21,7 +21,11 @@ export type QueryParams = Record<
 export interface RequestOptions {
   method?: string;
   path?: string;
-  query?: QueryParams;
+  // Accept any object — generated `*Params` interfaces don't carry an
+  // index signature, so a stricter Record<string, ...> would reject them.
+  // The runtime serializer iterates Object.entries and stringifies values,
+  // so any plain-object shape works.
+  query?: Record<string, unknown> | object;
   body?: unknown;
   headers?: HeadersInit;
   timeout?: number;

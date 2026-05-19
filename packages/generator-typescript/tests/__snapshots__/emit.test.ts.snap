@@ -36,8 +36,9 @@ export class PetstoreClient extends BaseClient {
 
 exports[`TypeScript generator (petstore) > snapshot: resources/pets.ts 1`] = `
 "import { APIResource } from '../core/api-client.js';
+import type { RequestOptions } from '../core/types.js';
 import { CursorPage } from '../core/pagination.js';
-import type { CreatePetRequest, Pet, UpdatePetRequest } from '../types/index.js';
+import type { CreatePetRequest, Pet, PetListPetsParams, UpdatePetRequest } from '../types/index.js';
 
 export class Pets extends APIResource {
 
@@ -47,32 +48,32 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async createPet(body: CreatePetRequest): Promise<Pet> {
-    return this._client.post('/pets', { body });
+  async createPet(body: CreatePetRequest, options?: RequestOptions): Promise<Pet> {
+    return this._client.post('/pets', { ...options, body });
   }
 
   /**
    * Delete a pet
    */
 
-  async deletePet(petId: string): Promise<void> {
-    return this._client.delete(\`/pets/\${petId}\`);
+  async deletePet(petId: string, options?: RequestOptions): Promise<void> {
+    return this._client.delete(\`/pets/\${petId}\`, { ...options });
   }
 
   /**
    * Get a pet by ID
    */
 
-  async getPet(petId: string): Promise<Pet> {
-    return this._client.get(\`/pets/\${petId}\`);
+  async getPet(petId: string, options?: RequestOptions): Promise<Pet> {
+    return this._client.get(\`/pets/\${petId}\`, { ...options });
   }
 
   /**
    * Returns a paginated list of pets.
    */
 
-  async listPets(query?: { after?: string; limit?: number }): Promise<CursorPage<Pet>> {
-    return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { query });
+  async listPets(query?: PetListPetsParams, options?: RequestOptions): Promise<CursorPage<Pet>> {
+    return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { ...options, query });
   }
 
   /**
@@ -81,8 +82,8 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async updatePet(petId: string, body: UpdatePetRequest): Promise<Pet> {
-    return this._client.patch(\`/pets/\${petId}\`, { body });
+  async updatePet(petId: string, body: UpdatePetRequest, options?: RequestOptions): Promise<Pet> {
+    return this._client.patch(\`/pets/\${petId}\`, { ...options, body });
   }
 }
 "

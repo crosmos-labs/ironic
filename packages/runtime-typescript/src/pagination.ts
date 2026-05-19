@@ -152,15 +152,16 @@ export class OffsetPage<Item> extends AbstractPage<Item> {
   }
 
   nextPageRequestOptions(): RequestOptions | null {
-    const currentPage = ((this.options.query?.page as number) ?? 1);
-    const perPage = ((this.options.query?.per_page as number) ?? 20);
+    const q = (this.options.query ?? {}) as Record<string, unknown>;
+    const currentPage = (q.page as number) ?? 1;
+    const perPage = (q.per_page as number) ?? 20;
 
     if (currentPage * perPage >= this.total) return null;
 
     return {
       ...this.options,
       query: {
-        ...this.options.query,
+        ...q,
         page: currentPage + 1,
         per_page: perPage,
       },

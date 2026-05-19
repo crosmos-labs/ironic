@@ -23,6 +23,7 @@ export function emitResourceFile(resource: ResourceNode): string {
 function buildImports(resource: ResourceNode): string {
   const lines: string[] = [
     `import { APIResource } from '../core/api-client.js';`,
+    `import type { RequestOptions } from '../core/types.js';`,
   ];
 
   // Import child resource classes
@@ -121,11 +122,16 @@ function buildMethodSignature(method: MethodNode): string {
     params.push(`body: ${bodyType}`);
   }
 
-  // Query params as options object
-  if (method.queryParams.length > 0) {
+  // Query params: prefer the named *Params interface if synthesized.
+  if (method.queryParamsTypeName) {
+    params.push(`query?: ${method.queryParamsTypeName}`);
+  } else if (method.queryParams.length > 0) {
     const queryType = buildQueryParamsType(method.queryParams);
     params.push(`query?: ${queryType}`);
   }
+
+  // Per-call request options (headers, timeout, signal, maxRetries).
+  params.push(`options?: RequestOptions`);
 
   // Return type
   const returnType = buildReturnType(method);
@@ -141,19 +147,12 @@ function buildMethodBody(method: MethodNode): string {
   const pathExpr = buildPathExpression(method.path, method.pathParams);
   const httpMethod = method.httpMethod;
 
-  const options: string[] = [];
-
-  if (method.requestBody) {
-    options.push(`body`);
-  }
-
-  if (method.queryParams.length > 0) {
-    options.push(`query`);
-  }
-
-  const optionsStr = options.length > 0
-    ? `, { ${options.join(', ')} }`
-    : '';
+  // `{ ...options, body, query }` — explicit fields win over anything the
+  // caller passed via `options`, which is the safe ordering.
+  const parts: string[] = ['...options'];
+  if (method.requestBody) parts.push('body');
+  if (method.queryParams.length > 0) parts.push('query');
+  const optionsStr = `, { ${parts.join(', ')} }`;
 
   if (method.streaming) {
     return `return this._client.stream(${pathExpr}${optionsStr});`;

@@ -54,6 +54,9 @@ export function collectResourceTypeRefs(resource: ResourceNode): Set<string> {
     for (const param of [...method.pathParams, ...method.queryParams]) {
       for (const r of collectTypeRefs(param.type)) refs.add(r);
     }
+    if (method.queryParamsTypeName) {
+      refs.add(method.queryParamsTypeName);
+    }
   }
 
   return refs;

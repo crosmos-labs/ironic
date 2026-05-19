@@ -88,6 +88,24 @@ describe('petstore SDK runtime', () => {
     expect(call).toBe(2);
   });
 
+  it('forwards per-call options (custom header, signal)', async () => {
+    let captured: Headers | undefined;
+    let receivedSignal: AbortSignal | undefined;
+    installFetchMock(({ init }) => {
+      captured = new Headers(init.headers);
+      receivedSignal = init.signal ?? undefined;
+      return { status: 200, body: { id: 'p1', name: 'A', species: 'dog', status: 'available', created_at: 't' } };
+    });
+    const controller = new AbortController();
+    const client = new PetstoreClient({ apiKey: 'test' });
+    await client.pets.getPet('p1', {
+      headers: { 'X-Trace': 'abc-123' },
+      signal: controller.signal,
+    });
+    expect(captured?.get('x-trace')).toBe('abc-123');
+    expect(receivedSignal).toBeDefined();
+  });
+
   it('sends Bearer auth header', async () => {
     let captured: Headers | undefined;
     installFetchMock(({ init }) => {
