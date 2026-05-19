@@ -41,35 +41,14 @@ const ModelSpecSchema = z.union([
 ]);
 
 // ── ResourceConfig (recursive) ──────────────────────────────────────────────
-// We type subresources permissively (record of unknown) to avoid TypeScript's
-// recursive-type strictness; the planner walks the raw object at runtime.
 
-const PythonTargetSchema = z.object({
-  package_name: z.string(),
-  output_dir: z.string().default('./generated/python'),
-  module_name: z.string().optional(),
-  publish: z
-    .object({
-      registry: z.enum(['pypi', 'none']).default('pypi'),
-    })
-    .optional(),
-  options: z
-    .object({
-      async_client: z.boolean().default(true),
-      sync_client: z.boolean().default(true),
-    })
-    .optional(),
-});
-
-const TypescriptTargetSchema = z.object({
-  package_name: z.string(),
-  output_dir: z.string().default('./generated/typescript'),
-  publish: z
+const ResourceConfigSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
+  z
     .object({
       models: z.record(ModelSpecSchema).optional(),
       methods: z.record(MethodSpecSchema).optional(),
       description: z.string().optional(),
-      subresources: z.record(z.unknown()).optional(),
+      subresources: z.record(ResourceConfigSchema).optional(),
       deprecated: z.boolean().optional(),
       skip: z.boolean().optional(),
     })
@@ -127,6 +106,9 @@ const PythonTargetSchema = z
     production_repo: z.union([z.string(), z.null()]).optional(),
     publish: z.object({}).passthrough().optional(),
     skip: z.boolean().optional(),
+    // Ironic extensions
+    output_dir: z.string().default('./generated/python'),
+    module_name: z.string().optional(),
   })
   .passthrough();
 
@@ -288,11 +270,6 @@ const TransformSchema = z.discriminatedUnion('type', [
 ]);
 
 export type Transform = z.infer<typeof TransformSchema>;
-
-  targets: z.object({
-    typescript: TypescriptTargetSchema.optional(),
-    python: PythonTargetSchema.optional(),
-  }),
 
 export const ConfigSchema = z
   .object({
