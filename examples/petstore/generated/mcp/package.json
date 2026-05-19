@@ -1,15 +1,27 @@
 {
   "name": "@petstore/mcp-mcp",
   "version": "1.0.0",
-  "description": "MCP server for Petstore",
+  "description": "MCP server for the Petstore API",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "bin": {
+    "petstore-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "tsx src/index.ts"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@petstore/sdk": "*",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.23.0",
-    "@petstore/sdk": "*"
+    "zod": "^3.23.0"
   }
 }

@@ -1,8 +1,6 @@
-// ─── Type Emitter ────────────────────────────────────────────────────────────
-// Emit TypeScript interfaces, type aliases, and enums from IR TypeDefs.
-
 import type { TypeDef, TypeRef } from '@ironic/core';
 import { jsdoc, joinBlocks } from '../snippets/formatters.js';
+import { collectTypeRefs } from '../snippets/type-refs.js';
 
 /**
  * Emit a single TypeRef as a TypeScript type string.
@@ -92,13 +90,35 @@ export function emitTypeDef(def: TypeDef): string {
 
 /**
  * Emit a file of type definitions, grouped by resource.
+ * If `allTypeNames` is provided, imports for referenced types not defined
+ * in this file will be added from './shared.js'.
  */
-export function emitTypesFile(types: TypeDef[]): string {
+export function emitTypesFile(types: TypeDef[], allTypeNames?: Set<string>): string {
   if (types.length === 0) return '';
+
+  // Collect names defined in this file
+  const localNames = new Set(types.map((t) => t.name));
+
+  // Collect all type references used in this file
+  const allRefs = new Set<string>();
+  for (const type of types) {
+    for (const ref of collectTypeRefs(type.type)) {
+      allRefs.add(ref);
+    }
+  }
+
+  // External refs = referenced but not locally defined
+  const externalRefs = [...allRefs]
+    .filter((ref) => !localNames.has(ref))
+    .sort();
+
+  const imports = externalRefs.length > 0
+    ? `import type { ${externalRefs.join(', ')} } from './shared.js';\n\n`
+    : '';
 
   const defs = types
     .sort((a, b) => a.name.localeCompare(b.name))
     .map(emitTypeDef);
 
-  return defs.join('\n\n') + '\n';
+  return imports + defs.join('\n\n') + '\n';
 }

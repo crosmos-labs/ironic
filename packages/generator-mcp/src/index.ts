@@ -1,47 +1,472 @@
 // ─── MCP Server Generator ────────────────────────────────────────────────────
-// Stub — will be implemented in Phase 3.
+// Generates a complete MCP server with execute_code + search_docs tools.
 
-import type { IR } from '@ironic/core';
+import type { IR, ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/core';
 
 export type FileTree = Map<string, string>;
 
+/** Simple type ref → string for docs (subset of the full emitter). */
+function typeStr(ref: TypeRef): string {
+  switch (ref.kind) {
+    case 'primitive': return ref.type;
+    case 'ref': return ref.name;
+    case 'enum': return ref.values.map(v => ref.type === 'string' ? `'${v}'` : v).join(' | ');
+    case 'array': return `${typeStr(ref.items)}[]`;
+    case 'nullable': return `${typeStr(ref.inner)} | null`;
+    case 'union': return ref.members.map(typeStr).join(' | ');
+    case 'intersection': return ref.members.map(typeStr).join(' & ');
+    case 'record': return `Record<string, ${typeStr(ref.valueType)}>`;
+    case 'object': {
+      const props = Object.entries(ref.properties)
+        .map(([k, v]) => `${k}${v.required ? '' : '?'}: ${typeStr(v.type)}`)
+        .join('; ');
+      return `{ ${props} }`;
+    }
+    default: return 'unknown';
+  }
+}
+
+
 /**
- * Generate an MCP server package from an IR.
- * TODO: Implement in Phase 3.
+ * Generate a complete MCP server package from an IR.
  */
 export function emit(ir: IR): FileTree {
   const files: FileTree = new Map();
 
-  files.set(
-    'package.json',
-    JSON.stringify(
-      {
-        name: ir.meta.packageName.replace(/sdk$/, 'mcp').replace(/@([^/]+)\/(.+)/, '@$1/$2-mcp'),
-        version: ir.meta.version,
-        description: `MCP server for ${ir.meta.prettyName}`,
-        type: 'module',
-        main: './src/index.ts',
-        scripts: {
-          start: 'tsx src/index.ts',
-        },
-        dependencies: {
-          '@modelcontextprotocol/sdk': '^1.0.0',
-          zod: '^3.23.0',
-          [ir.meta.packageName]: '*',
-        },
-      },
-      null,
-      2,
-    ) + '\n',
-  );
+  files.set('package.json', emitPackageJson(ir));
+  files.set('tsconfig.json', emitTsConfig());
+  files.set('README.md', emitReadme(ir));
+  files.set('src/index.ts', emitServerEntry(ir));
+  files.set('src/sandbox.ts', emitSandbox(ir));
+  files.set('src/docs.ts', emitDocsLoader());
+  files.set('src/tools/execute-code.ts', emitExecuteCodeTool(ir));
+  files.set('src/tools/search-docs.ts', emitSearchDocsTool(ir));
 
-  files.set(
-    'src/index.ts',
-    `// MCP Server for ${ir.meta.prettyName}
-// TODO: Implement execute_code and search_docs tools
-console.log('MCP server not yet implemented');
-`,
-  );
+  // Generate docs markdown for each resource
+  for (const resource of ir.resources) {
+    const md = emitResourceDocs(resource, ir);
+    files.set(`docs/${resource.name}.md`, md);
+  }
 
   return files;
+}
+
+// ── Package scaffolding ──
+
+function emitPackageJson(ir: IR): string {
+  const mcpName = ir.meta.packageName
+    .replace(/sdk$/, 'mcp')
+    .replace(/@([^/]+)\/(.+)/, (_, scope, name) => {
+      if (name === 'sdk') return `@${scope}/mcp`;
+      return `@${scope}/${name}-mcp`;
+    });
+
+  return JSON.stringify({
+    name: mcpName,
+    version: ir.meta.version,
+    description: `MCP server for the ${ir.meta.prettyName} API`,
+    type: 'module',
+    main: './dist/index.js',
+    bin: { [`${ir.meta.prettyName.toLowerCase()}-mcp`]: './dist/index.js' },
+    files: ['dist', 'docs'],
+    engines: { node: '>=20' },
+    scripts: {
+      build: 'tsc',
+      start: 'node dist/index.js',
+      prepublishOnly: 'npm run build',
+    },
+    dependencies: {
+      [ir.meta.packageName]: '*',
+      '@modelcontextprotocol/sdk': '^1.0.0',
+      zod: '^3.23.0',
+    },
+  }, null, 2) + '\n';
+}
+
+function emitTsConfig(): string {
+  return JSON.stringify({
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      strict: true,
+      skipLibCheck: true,
+      declaration: true,
+      outDir: './dist',
+      rootDir: './src',
+      esModuleInterop: true,
+      forceConsistentCasingInFileNames: true,
+      resolveJsonModule: true,
+      isolatedModules: true,
+    },
+    include: ['src'],
+  }, null, 2) + '\n';
+}
+
+function emitReadme(ir: IR): string {
+  return `# ${ir.meta.prettyName} MCP Server
+
+An MCP server for the ${ir.meta.prettyName} API, powered by the [${ir.meta.packageName}](https://www.npmjs.com/package/${ir.meta.packageName}) SDK.
+
+## Quick Start
+
+Add to your MCP client config (e.g. Claude Desktop):
+
+\`\`\`json
+{
+  "mcpServers": {
+    "${ir.meta.prettyName.toLowerCase()}": {
+      "command": "npx",
+      "args": ["-y", "${ir.meta.packageName.replace(/sdk$/, 'mcp')}"],
+      "env": { "${ir.auth.envVar}": "your-api-key" }
+    }
+  }
+}
+\`\`\`
+
+## Tools
+
+### \`execute_code\`
+Run TypeScript code against the ${ir.meta.prettyName} API. The SDK client is pre-instantiated as \`client\`.
+
+### \`search_docs\`
+Search the SDK documentation to discover methods and their signatures.
+
+---
+
+*Generated by [Ironic](https://github.com/ironic-sdk/ironic).*
+`;
+}
+
+// ── Server entry ──
+
+function emitServerEntry(ir: IR): string {
+  return `#!/usr/bin/env node
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { registerExecuteCode } from './tools/execute-code.js';
+import { registerSearchDocs } from './tools/search-docs.js';
+
+const server = new McpServer({
+  name: '${ir.meta.prettyName.toLowerCase()}-mcp',
+  version: '${ir.meta.version}',
+});
+
+registerExecuteCode(server);
+registerSearchDocs(server);
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+`;
+}
+
+// ── Sandbox ──
+
+function emitSandbox(ir: IR): string {
+  return `import vm from 'node:vm';
+import { ${ir.meta.prettyName}Client } from '${ir.meta.packageName}';
+
+let cachedClient: ${ir.meta.prettyName}Client | null = null;
+
+function getClient(): ${ir.meta.prettyName}Client {
+  if (!cachedClient) {
+    cachedClient = new ${ir.meta.prettyName}Client({
+      apiKey: process.env['${ir.auth.envVar}'],
+    });
+  }
+  return cachedClient;
+}
+
+export async function runInSandbox(code: string): Promise<unknown> {
+  const context = vm.createContext({
+    client: getClient(),
+    console: {
+      log: (...args: unknown[]) => console.error('[sandbox]', ...args),
+      error: (...args: unknown[]) => console.error('[sandbox]', ...args),
+    },
+    fetch: globalThis.fetch,
+    URL,
+    URLSearchParams,
+    setTimeout,
+    clearTimeout,
+    Promise,
+    JSON,
+    Math,
+    Date,
+    __result: undefined as unknown,
+  });
+
+  const wrapped = \`(async () => {\\n\${code}\\n})().then(v => { __result = v; })\`;
+
+  const script = new vm.Script(wrapped, { filename: '<mcp-execute-code>' });
+  await script.runInContext(context, { timeout: 30_000 });
+
+  // Wait one microtask for promise resolution
+  await new Promise<void>((r) => setImmediate(r));
+
+  return context.__result;
+}
+`;
+}
+
+// ── Tools ──
+
+function emitExecuteCodeTool(ir: IR): string {
+  // Build a few example code snippets from the actual resources
+  const examples = buildCodeExamples(ir);
+
+  return `import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { runInSandbox } from '../sandbox.js';
+
+const InputSchema = {
+  code: z.string().describe(
+    \`TypeScript code to execute. The ${ir.meta.prettyName} SDK client is pre-instantiated as \\\`client\\\`.
+
+Examples:
+${examples}
+
+Notes:
+  - The code is wrapped in an async function.
+  - Use \\\`return\\\` to send a value back; it will be JSON-serialized.
+  - Network requests run with the API key from the ${ir.auth.envVar} environment variable.\`,
+  ),
+};
+
+export function registerExecuteCode(server: McpServer) {
+  server.tool(
+    'execute_code',
+    'Run TypeScript code against the ${ir.meta.prettyName} API. The SDK is exposed as \`client\`.',
+    InputSchema,
+    async ({ code }) => {
+      try {
+        const result = await runInSandbox(code);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: \`Error: \${err instanceof Error ? \`\${err.name}: \${err.message}\` : String(err)}\`,
+          }],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+`;
+}
+
+function emitSearchDocsTool(ir: IR): string {
+  return `import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { search } from '../docs.js';
+
+const InputSchema = {
+  query: z.string().describe(
+    'Search query for the ${ir.meta.prettyName} SDK docs. Examples: "${ir.resources[0]?.name ?? 'list'}", "create", "error handling".',
+  ),
+  limit: z.number().int().min(1).max(20).default(5).describe('Max results.'),
+};
+
+export function registerSearchDocs(server: McpServer) {
+  server.tool(
+    'search_docs',
+    'Search the ${ir.meta.prettyName} SDK documentation. Returns method signatures, descriptions, and code examples.',
+    InputSchema,
+    async ({ query, limit }) => {
+      const hits = search(query, limit);
+      return {
+        content: [{
+          type: 'text' as const,
+          text: hits.length
+            ? hits.map(h => \`## \${h.title}\\n\\n\${h.body}\`).join('\\n\\n---\\n\\n')
+            : \`No matches for "\${query}". Try broader terms or list resources with "list all".\`,
+        }],
+      };
+    },
+  );
+}
+`;
+}
+
+// ── Docs loader ──
+
+function emitDocsLoader(): string {
+  return `import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+interface DocChunk {
+  title: string;
+  body: string;
+  tokens: Set<string>;
+}
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DOCS_DIR = path.resolve(__dirname, '..', 'docs');
+
+let docs: DocChunk[] | null = null;
+
+function loadDocs(): DocChunk[] {
+  if (docs) return docs;
+  docs = [];
+  for (const file of fs.readdirSync(DOCS_DIR)) {
+    if (!file.endsWith('.md')) continue;
+    const content = fs.readFileSync(path.join(DOCS_DIR, file), 'utf-8');
+    // Split on ## headers — one chunk per method section
+    const sections = content.split(/^## /m).filter(s => s.trim());
+    for (const section of sections) {
+      const [title, ...rest] = section.split('\\n');
+      const body = rest.join('\\n').trim();
+      docs.push({
+        title: title!.trim(),
+        body,
+        tokens: tokenize(\`\${title} \${body}\`),
+      });
+    }
+  }
+  return docs;
+}
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().split(/[^a-z0-9_]+/).filter(t => t.length > 1),
+  );
+}
+
+export function search(query: string, limit = 5): DocChunk[] {
+  const all = loadDocs();
+  const queryTokens = tokenize(query);
+  const scored = all.map(chunk => {
+    let score = 0;
+    for (const t of queryTokens) {
+      if (chunk.tokens.has(t)) score += 1;
+      if (chunk.title.toLowerCase().includes(t)) score += 3;
+    }
+    return { chunk, score };
+  });
+  return scored
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.chunk);
+}
+`;
+}
+
+// ── Resource docs ──
+
+function emitResourceDocs(resource: ResourceNode, ir: IR): string {
+  const lines: string[] = [
+    `# ${resource.className}`,
+    '',
+  ];
+
+  for (const method of resource.methods) {
+    const params = [...method.pathParams, ...method.queryParams];
+    const hasBody = !!method.requestBody;
+
+    // Method signature
+    const sig = buildMethodSig(method, resource, ir);
+    lines.push(`## ${sig}`);
+    lines.push('');
+
+    if (method.description) {
+      lines.push(method.description);
+      lines.push('');
+    }
+
+    // Parameters table
+    if (params.length > 0 || hasBody) {
+      lines.push('**Parameters**');
+      lines.push('');
+      lines.push('| Name | Type | Required | Description |');
+      lines.push('|---|---|---|---|');
+
+      for (const param of method.pathParams) {
+        lines.push(`| \`${param.tsName}\` | \`${typeStr(param.type)}\` | yes | ${param.description ?? ''} |`);
+      }
+      if (hasBody) {
+        lines.push(`| \`body\` | \`${typeStr(method.requestBody!)}\` | yes | Request body |`);
+      }
+      for (const param of method.queryParams) {
+        lines.push(`| \`${param.tsName}\` | \`${typeStr(param.type)}\` | ${param.required ? 'yes' : 'no'} | ${param.description ?? ''} |`);
+      }
+      lines.push('');
+    }
+
+    // Return type
+    const returnType = typeStr(method.responseType);
+    lines.push(`**Returns**: \`Promise<${returnType}>\``);
+    lines.push('');
+
+    // Example
+    lines.push('**Example**');
+    lines.push('');
+    lines.push('```typescript');
+    lines.push(buildMethodExample(method, resource, ir));
+    lines.push('```');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function buildMethodSig(method: MethodNode, resource: ResourceNode, ir: IR): string {
+  const parts: string[] = [];
+  for (const p of method.pathParams) parts.push(p.tsName);
+  if (method.requestBody) parts.push('body');
+  if (method.queryParams.length > 0) parts.push('params?');
+
+  return `client.${resource.name}.${method.name}(${parts.join(', ')})`;
+}
+
+function buildMethodExample(method: MethodNode, resource: ResourceNode, ir: IR): string {
+  const args: string[] = [];
+  for (const p of method.pathParams) args.push(`'example_${p.name}'`);
+  if (method.requestBody) args.push('{ /* ... */ }');
+  if (method.queryParams.length > 0) {
+    const qp = method.queryParams.map(p => `${p.tsName}: ${getExampleValue(p)}`).join(', ');
+    args.push(`{ ${qp} }`);
+  }
+
+  const call = `client.${resource.name}.${method.name}(${args.join(', ')})`;
+  const returnType = typeStr(method.responseType);
+
+  if (returnType === 'void') {
+    return `await ${call};`;
+  }
+  return `const result = await ${call};\nreturn result;`;
+}
+
+function buildCodeExamples(ir: IR): string {
+  const examples: string[] = [];
+  for (const resource of ir.resources) {
+    for (const method of resource.methods.slice(0, 2)) {
+      const args: string[] = [];
+      for (const p of method.pathParams) args.push(`'example_id'`);
+      if (method.requestBody) args.push('{ /* body */ }');
+      examples.push(`  const result = await client.${resource.name}.${method.name}(${args.join(', ')});`);
+    }
+    if (examples.length >= 3) break;
+  }
+  return examples.join('\n\n');
+}
+
+function getExampleValue(param: ParamNode): string {
+  switch (param.type.kind) {
+    case 'primitive':
+      if (param.type.type === 'string') return `'example'`;
+      if (param.type.type === 'number') return '10';
+      if (param.type.type === 'boolean') return 'true';
+      return `'example'`;
+    default:
+      return `'example'`;
+  }
 }
