@@ -48,7 +48,7 @@ describe('TypeScript generator (petstore)', () => {
     // Should import types
     expect(pets).toContain("import type { CreatePetRequest, Pet, PetListPetsParams, UpdatePetRequest } from '../types/index.js'");
     // Method signatures should use refs, not inlined objects
-    expect(pets).toContain('body: CreatePetRequest, options?: RequestOptions): Promise<Pet>');
+    expect(pets).toContain('body: CreatePetRequest, options?: RequestOptions): APIPromise<Pet>');
     expect(pets).toContain('Promise<Pet>');
   });
 

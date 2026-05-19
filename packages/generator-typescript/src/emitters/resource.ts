@@ -26,6 +26,12 @@ function buildImports(resource: ResourceNode): string {
     `import type { RequestOptions } from '../core/types.js';`,
   ];
 
+  // APIPromise is the default return type for non-streaming/non-paginated methods.
+  const needsAPIPromise = resource.methods.some((m) => !m.streaming && !m.pagination);
+  if (needsAPIPromise) {
+    lines.push(`import { APIPromise } from '../core/api-promise.js';`);
+  }
+
   // Import child resource classes
   for (const child of resource.children) {
     lines.push(
@@ -137,7 +143,13 @@ function buildMethodSignature(method: MethodNode): string {
   const returnType = buildReturnType(method);
   const deprecated = method.deprecated ? '/** @deprecated */\n  ' : '';
 
-  return `${deprecated}async ${method.name}(${params.join(', ')}): Promise<${returnType}>`;
+  // Streaming and pagination methods return their own promise wrappers
+  // (Stream<T> / a Page subclass), so they stay `async` returning a Promise.
+  // Everything else returns APIPromise<T> directly without async.
+  const wrapper = method.streaming || method.pagination ? 'Promise' : 'APIPromise';
+  const asyncKw = method.streaming || method.pagination ? 'async ' : '';
+
+  return `${deprecated}${asyncKw}${method.name}(${params.join(', ')}): ${wrapper}<${returnType}>`;
 }
 
 /**

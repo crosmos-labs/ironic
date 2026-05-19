@@ -35,7 +35,12 @@ export function collectTypes(
   const types = new Map<string, TypeDef>();
   const renames = config.types?.rename ?? {};
 
-  // 1. Emit all component schemas
+  // 1. Emit all component schemas.
+  // We pass the registry so cross-references between components emit as
+  // RefTypeRef (e.g. EntityDetailResponse.memories.items → EntityMemory)
+  // instead of being inlined as anonymous objects. We do a registry lookup
+  // against the *outer* schema separately so a schema doesn't resolve to
+  // itself — `schemaToTypeRef(s, n, registry)` would short-circuit to `s.ref`.
   for (const [schemaName, schema] of Object.entries(spec.schemas).sort(([a], [b]) => a.localeCompare(b))) {
     const finalName = renames[schemaName] ?? pascalCase(schemaName);
 
@@ -43,7 +48,7 @@ export function collectTypes(
 
     types.set(finalName, {
       name: finalName,
-      type: schemaToTypeRef(schema, finalName),
+      type: emitComponentBody(schema, finalName, spec.schemaRegistry),
       description: schema.description,
       isRequestBody: false,
     });
@@ -107,6 +112,30 @@ function walkResource(
 
   for (const child of resource.children) {
     walkResource(child, types, `${resourceName}.${child.name}`);
+  }
+}
+
+/**
+ * Emit a component schema's *body* (not as a ref to itself).
+ *
+ * `schemaToTypeRef(schema, name, registry)` would short-circuit and return
+ * `{ kind: 'ref', name: <self> }` because the registry contains the schema's
+ * own identity. We bypass that one-shot by walking the schema's children with
+ * the registry and reconstructing the outer node manually.
+ */
+function emitComponentBody(
+  schema: SchemaObject,
+  name: string,
+  registry: Map<object, string>,
+): TypeRef {
+  // Temporarily remove the schema from the registry so its children resolve
+  // by identity to OTHER components but the outer schema doesn't ref itself.
+  const ownName = registry.get(schema);
+  if (ownName !== undefined) registry.delete(schema);
+  try {
+    return schemaToTypeRef(schema, name, registry);
+  } finally {
+    if (ownName !== undefined) registry.set(schema, ownName);
   }
 }
 

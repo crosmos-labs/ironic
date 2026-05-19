@@ -58,6 +58,7 @@ function copyRuntimeFiles(files: FileTree, runtimeSrcDir?: string): void {
 
   const runtimeFiles = [
     'api-client.ts',
+    'api-promise.ts',
     'errors.ts',
     'pagination.ts',
     'streaming.ts',
@@ -79,6 +80,7 @@ function copyRuntimeFiles(files: FileTree, runtimeSrcDir?: string): void {
   files.set(
     'src/core/index.ts',
     `export { BaseClient, APIResource } from './api-client.js';
+export { APIPromise } from './api-promise.js';
 export * from './errors.js';
 export * from './pagination.js';
 export * from './streaming.js';
@@ -171,6 +173,8 @@ function emitIndexFile(ir: IR): string {
     ``,
     `// Core`,
     `export { APIError, BadRequestError, AuthenticationError, PermissionDeniedError, NotFoundError, ConflictError, UnprocessableEntityError, RateLimitError, InternalServerError, APIConnectionError, APITimeoutError } from './core/errors.js';`,
+    `export { APIPromise } from './core/api-promise.js';`,
+    `export type { RequestOptions, ClientOptions } from './core/types.js';`,
   ];
 
   // Export resource classes

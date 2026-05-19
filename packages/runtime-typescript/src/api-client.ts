@@ -6,6 +6,7 @@ import { APIError, APIConnectionError, APITimeoutError } from './errors.js';
 import { Stream, createSSEStream } from './streaming.js';
 import { AbstractPage, type PageClient } from './pagination.js';
 import { buildFormData, isUploadable } from './uploads.js';
+import { APIPromise } from './api-promise.js';
 import type { ClientOptions, RequestOptions, QueryParams, HeaderValue } from './types.js';
 
 const DEFAULT_MAX_RETRIES = 2;
@@ -47,29 +48,39 @@ export class BaseClient implements PageClient {
 
   // ── HTTP verb helpers ────────────────────────────────────────────────────
 
-  async get<T>(path: string, options?: RequestOptions): Promise<T> {
-    const response = await this._request({ ...options, method: 'GET', path });
-    return (await response.json()) as T;
+  get<T>(path: string, options?: RequestOptions): APIPromise<T> {
+    return this._call<T>('GET', path, options);
   }
 
-  async post<T>(path: string, options?: RequestOptions): Promise<T> {
-    const response = await this._request({ ...options, method: 'POST', path });
-    return (await response.json()) as T;
+  post<T>(path: string, options?: RequestOptions): APIPromise<T> {
+    return this._call<T>('POST', path, options);
   }
 
-  async put<T>(path: string, options?: RequestOptions): Promise<T> {
-    const response = await this._request({ ...options, method: 'PUT', path });
-    return (await response.json()) as T;
+  put<T>(path: string, options?: RequestOptions): APIPromise<T> {
+    return this._call<T>('PUT', path, options);
   }
 
-  async patch<T>(path: string, options?: RequestOptions): Promise<T> {
-    const response = await this._request({ ...options, method: 'PATCH', path });
-    return (await response.json()) as T;
+  patch<T>(path: string, options?: RequestOptions): APIPromise<T> {
+    return this._call<T>('PATCH', path, options);
   }
 
-  async delete<T>(path: string, options?: RequestOptions): Promise<T> {
-    const response = await this._request({ ...options, method: 'DELETE', path });
-    return (await response.json()) as T;
+  delete<T>(path: string, options?: RequestOptions): APIPromise<T> {
+    return this._call<T>('DELETE', path, options);
+  }
+
+  private _call<T>(method: string, path: string, options?: RequestOptions): APIPromise<T> {
+    return new APIPromise<T>(
+      (async () => {
+        const response = await this._request({ ...options, method, path });
+        // 204 / empty body → return undefined as T (e.g. for DELETE).
+        if (response.status === 204 || response.headers.get('content-length') === '0') {
+          return { data: undefined as T, response };
+        }
+        const text = await response.text();
+        const data = (text ? JSON.parse(text) : undefined) as T;
+        return { data, response };
+      })(),
+    );
   }
 
   // ── Pagination ───────────────────────────────────────────────────────────

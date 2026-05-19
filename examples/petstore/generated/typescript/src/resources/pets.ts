@@ -1,5 +1,6 @@
 import { APIResource } from '../core/api-client.js';
 import type { RequestOptions } from '../core/types.js';
+import { APIPromise } from '../core/api-promise.js';
 import { CursorPage } from '../core/pagination.js';
 import type { CreatePetRequest, Pet, PetListPetsParams, UpdatePetRequest } from '../types/index.js';
 
@@ -11,7 +12,7 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async createPet(body: CreatePetRequest, options?: RequestOptions): Promise<Pet> {
+  createPet(body: CreatePetRequest, options?: RequestOptions): APIPromise<Pet> {
     return this._client.post('/pets', { ...options, body });
   }
 
@@ -19,7 +20,7 @@ export class Pets extends APIResource {
    * Delete a pet
    */
 
-  async deletePet(petId: string, options?: RequestOptions): Promise<void> {
+  deletePet(petId: string, options?: RequestOptions): APIPromise<void> {
     return this._client.delete(`/pets/${petId}`, { ...options });
   }
 
@@ -27,7 +28,7 @@ export class Pets extends APIResource {
    * Get a pet by ID
    */
 
-  async getPet(petId: string, options?: RequestOptions): Promise<Pet> {
+  getPet(petId: string, options?: RequestOptions): APIPromise<Pet> {
     return this._client.get(`/pets/${petId}`, { ...options });
   }
 
@@ -45,7 +46,7 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async updatePet(petId: string, body: UpdatePetRequest, options?: RequestOptions): Promise<Pet> {
+  updatePet(petId: string, body: UpdatePetRequest, options?: RequestOptions): APIPromise<Pet> {
     return this._client.patch(`/pets/${petId}`, { ...options, body });
   }
 }

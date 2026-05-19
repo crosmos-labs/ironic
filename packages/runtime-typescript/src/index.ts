@@ -2,6 +2,7 @@
 // These files are copied verbatim into generated SDKs under src/core/
 
 export { BaseClient, APIResource } from './api-client.js';
+export { APIPromise } from './api-promise.js';
 export {
   APIError,
   BadRequestError,

@@ -88,6 +88,22 @@ describe('petstore SDK runtime', () => {
     expect(call).toBe(2);
   });
 
+  it('APIPromise exposes raw Response via withResponse / asResponse', async () => {
+    installFetchMock(() => ({
+      status: 200,
+      body: { id: 'p1', name: 'A', species: 'dog', status: 'available', created_at: 't' },
+      headers: { 'x-request-id': 'req-42' },
+    }));
+    const client = new PetstoreClient({ apiKey: 'test' });
+
+    const { data, response } = await client.pets.getPet('p1').withResponse();
+    expect(data.id).toBe('p1');
+    expect(response.headers.get('x-request-id')).toBe('req-42');
+
+    const justResponse = await client.pets.getPet('p1').asResponse();
+    expect(justResponse.status).toBe(200);
+  });
+
   it('forwards per-call options (custom header, signal)', async () => {
     let captured: Headers | undefined;
     let receivedSignal: AbortSignal | undefined;
