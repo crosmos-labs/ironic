@@ -9,6 +9,7 @@ import { parse, plan, defaultConfig, IronicUserError } from '@ironic/core';
 import type { IR } from '@ironic/core';
 import { emit as emitTypescript } from '@ironic/generator-typescript';
 import { emit as emitMcp } from '@ironic/generator-mcp';
+import { emit as emitPython } from '@ironic/generator-python';
 
 const program = new Command();
 
@@ -46,10 +47,10 @@ program
       );
 
       // Emit TypeScript SDK
-      const target = options.target ?? 'both';
+      const target = options.target ?? 'all';
       let totalFiles = 0;
 
-      if (target === 'typescript' || target === 'both') {
+      if (target === 'typescript' || target === 'both' || target === 'all') {
         if (config.targets.typescript) {
           console.log(pc.dim('  Generating TypeScript SDK...'));
           const tsFiles = emitTypescript(ir);
@@ -66,8 +67,29 @@ program
         }
       }
 
+      // Emit Python SDK
+      if (target === 'python' || target === 'all') {
+        if (config.targets.python) {
+          console.log(pc.dim('  Generating Python SDK...'));
+          const pyFiles = emitPython(ir, {
+            moduleName: config.targets.python.module_name,
+            packageName: config.targets.python.package_name,
+          });
+          const outDir = resolve(
+            config.targets.python.output_dir ?? './generated/python',
+          );
+          if (!options.dryRun) {
+            writeFileTree(pyFiles, outDir);
+          }
+          totalFiles += pyFiles.size;
+          console.log(
+            pc.green(`  ✓ ${pyFiles.size} files → ${pc.underline(outDir)}`),
+          );
+        }
+      }
+
       // Emit MCP Server
-      if (target === 'mcp' || target === 'both') {
+      if (target === 'mcp' || target === 'both' || target === 'all') {
         if (config.targets.typescript?.mcp_server) {
           console.log(pc.dim('  Generating MCP server...'));
           const mcpFiles = emitMcp(ir);

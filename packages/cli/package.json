@@ -16,6 +16,7 @@
     "@ironic/core": "*",
     "@ironic/generator-typescript": "*",
     "@ironic/generator-mcp": "*",
+    "@ironic/generator-python": "*",
     "commander": "^12.1.0",
     "picocolors": "^1.1.0"
   }
