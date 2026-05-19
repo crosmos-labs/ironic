@@ -7,6 +7,9 @@ targets:
     mcp_server:
       package_name: "@petstore/mcp"
       output_dir: ./generated/mcp
+  python:
+    package_name: petstore-sdk
+    output_dir: ./generated/python
 client_settings:
   base_url: https://api.petstore.io/v1
   timeout_ms: 30000
