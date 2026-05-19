@@ -41,24 +41,16 @@ const ModelSpecSchema = z.union([
 ]);
 
 // ── ResourceConfig (recursive) ──────────────────────────────────────────────
+// We type subresources permissively (record of unknown) to avoid TypeScript's
+// recursive-type strictness; the planner walks the raw object at runtime.
 
-type ResourceConfigInput = {
-  models?: Record<string, z.infer<typeof ModelSpecSchema>>;
-  methods?: Record<string, z.infer<typeof MethodSpecSchema>>;
-  description?: string;
-  subresources?: Record<string, ResourceConfigInput>;
-  deprecated?: boolean;
-  skip?: boolean;
-  [k: string]: unknown;
-};
-
-const ResourceConfigSchema: z.ZodType<ResourceConfigInput> = z.lazy(() =>
+const ResourceConfigSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
   z
     .object({
       models: z.record(ModelSpecSchema).optional(),
       methods: z.record(MethodSpecSchema).optional(),
       description: z.string().optional(),
-      subresources: z.record(ResourceConfigSchema).optional(),
+      subresources: z.record(z.unknown()).optional(),
       deprecated: z.boolean().optional(),
       skip: z.boolean().optional(),
     })
@@ -282,8 +274,12 @@ export type Transform = z.infer<typeof TransformSchema>;
 
 export const ConfigSchema = z
   .object({
-    /** Stainless edition string (e.g. `"2026-02-23"`). Optional for back-compat. */
-    edition: z.string().optional(),
+    /** Stainless edition string (e.g. `"2026-02-23"`). YAML may parse the bare
+     *  date as a Date object — we coerce back to ISO string here. */
+    edition: z
+      .union([z.string(), z.date()])
+      .transform((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v))
+      .optional(),
 
     organization: z
       .object({

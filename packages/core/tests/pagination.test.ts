@@ -145,10 +145,9 @@ describe('pagination heuristics (Tier 4)', () => {
       });
       const config = makeConfig({
         pagination: {
-          cursor: {
-            request: { cursor_param: 'page_token', limit_param: 'limit' },
-            response: { items_key: 'data', has_more_key: 'has_more', cursor_source: 'last_item_id', cursor_field: 'id' },
-          },
+          type: 'cursor',
+          request: { cursor_param: 'page_token', limit_param: 'limit' },
+          response: { items_key: 'data', has_more_key: 'has_more' },
         },
       });
       const ir = plan(config, spec);

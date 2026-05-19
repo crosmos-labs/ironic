@@ -6,7 +6,7 @@ import type { IronicConfig } from './parser/config.schema.js';
 import type { ParsedSpec } from './parser/openapi.js';
 import { parseConfig, defaultConfig } from './parser/config.js';
 import { parseOpenAPI } from './parser/openapi.js';
-import { planResources, predictResourceClassNames } from './planner/resources.js';
+import { planResources, predictResourceClassNames, collectModelRenames } from './planner/resources.js';
 import { planAuth } from './planner/auth.js';
 import { planPagination } from './planner/pagination.js';
 import { collectTypes } from './planner/types.js';
@@ -86,6 +86,12 @@ export async function parse(configPath: string): Promise<{
   spec: ParsedSpec;
 }> {
   const config = parseConfig(configPath);
+  if (!config.spec) {
+    throw new Error(
+      'No OpenAPI spec path found. Set `spec: ./openapi.yaml` in your config, ' +
+        'or place an `openapi.json`/`openapi.yaml` next to the config file.',
+    );
+  }
   const spec = await parseOpenAPI(config.spec);
   return { config, spec };
 }
@@ -123,10 +129,23 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
     const scopeMatch = packageName.match(/^@([^/]+)\//);
     baseName = scopeMatch?.[1] ?? spec.info.title.replace(/\s+API$/i, '') ?? 'My';
   }
+  // Environments now live at the top level (Stainless shape). Pick a sensible
+  // default for the baseURL: prefer `production`, else first declared env,
+  // else the spec's first server, else a generic placeholder.
+  const environments = config.environments ?? {};
+  const defaultEnvironment =
+    'production' in environments ? 'production' : Object.keys(environments)[0];
   const baseURL =
-    config.client_settings?.base_url ??
+    (defaultEnvironment ? environments[defaultEnvironment] : undefined) ??
     spec.servers[0]?.url ??
     'https://api.example.com';
+
+  // Timeout + retries come from `client_settings.default_timeout` / `default_retries`.
+  const defaultTimeout = config.client_settings?.default_timeout;
+  const timeoutMs =
+    typeof defaultTimeout === 'number'
+      ? defaultTimeout
+      : (defaultTimeout as { value?: number } | undefined)?.value ?? 60000;
 
   const meta = {
     packageName,
@@ -134,11 +153,11 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
     version: spec.info.version,
     description: spec.info.description ?? `${pascalCase(baseName)} SDK`,
     baseURL,
-    environments: config.client_settings?.environments ?? {},
-    defaultEnvironment: config.client_settings?.default_environment,
-    timeoutMs: config.client_settings?.timeout_ms ?? 60000,
-    maxRetries: config.client_settings?.max_retries ?? 2,
-    userAgentPrefix: config.client_settings?.user_agent_prefix,
+    environments,
+    defaultEnvironment,
+    timeoutMs,
+    maxRetries: config.client_settings?.default_retries?.max_retries ?? 2,
+    userAgentPrefix: undefined,
   };
 
   return { meta, auth, resources, types, paginationSchemes };
@@ -162,9 +181,15 @@ function applySchemaRenames(spec: ParsedSpec, config: IronicConfig): void {
   // Reserve resource class names so e.g. SearchResponse → Search doesn't
   // collide with `export class Search extends APIResource`.
   const reserved = predictResourceClassNames(config, spec);
+
+  // User-supplied renames come from each resource's `models:` block in
+  // Stainless config (e.g. `space: '#/components/schemas/SpaceResponse'`
+  // means `SpaceResponse` → `Space`). Heuristics fall back when models is empty.
+  const userRenames = collectModelRenames(config);
+
   const renames = buildSchemaRenames(
     Object.keys(spec.schemas),
-    config.types?.rename ?? {},
+    userRenames,
     reserved,
   );
 

@@ -36,7 +36,8 @@ describe('TypeScript generator (petstore)', () => {
     const client = files.get('src/client.ts')!;
     expect(client).toContain('export class PetstoreClient');
     expect(client).toContain('export interface PetstoreClientOptions');
-    expect(client).toContain("baseURL: options.baseURL ?? 'https://api.petstore.io/v1'");
+    // Environments block resolves to the production URL.
+    expect(client).toContain("'production': 'https://api.petstore.io/v1'");
   });
 
   it('resource uses named type refs', async () => {

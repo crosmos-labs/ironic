@@ -38,9 +38,12 @@ export function collectTypes(
   // The rename map was applied to the registry in the top-level `plan()` call.
   // We re-derive it here only to compute the *emit name* per schema; it must
   // match what's already in the registry.
+  // Prefer the cached rename map from `plan()` (built once, reused here so the
+  // emit name matches the schemaRegistry name). Fall back to a fresh heuristic
+  // pass when `plan()` wasn't the entry point (e.g. unit tests).
   const renames =
     (spec as ParsedSpec & { _renames?: Record<string, string> })._renames ??
-    buildSchemaRenames(Object.keys(spec.schemas), config.types?.rename ?? {});
+    buildSchemaRenames(Object.keys(spec.schemas), {});
 
   // 1. Emit all component schemas under their final names.
   for (const [schemaName, schema] of Object.entries(spec.schemas).sort(([a], [b]) => a.localeCompare(b))) {
