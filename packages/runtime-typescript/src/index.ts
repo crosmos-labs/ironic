@@ -3,6 +3,9 @@
 
 export { BaseClient, APIResource } from './api-client.js';
 export { APIPromise } from './api-promise.js';
+export { buildHeaders, hasHeader } from './headers.js';
+export { readEnv } from './env.js';
+export { VERSION } from './version.js';
 export {
   APIError,
   BadRequestError,
@@ -24,6 +27,7 @@ export { path } from './path.js';
 export type {
   ClientOptions,
   RequestOptions,
+  Logger,
   QueryParams,
   HeaderValue,
   HeadersInit,

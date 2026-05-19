@@ -20,6 +20,9 @@ function buildImports(ir: IR): string {
     `import { BaseClient } from './core/api-client.js';`,
     `import type { ClientOptions } from './core/types.js';`,
   ];
+  if (ir.auth.type !== 'none') {
+    lines.push(`import { readEnv } from './core/env.js';`);
+  }
 
   // Import each top-level resource
   for (const resource of ir.resources) {
@@ -41,7 +44,7 @@ function buildOptionsType(ir: IR): string {
   const envLines: string[] = [];
 
   if (ir.auth.type !== 'none') {
-    envLines.push(`  /** API key. Defaults to \`process.env['${ir.auth.envVar}']\`. */`);
+    envLines.push(`  /** API key. Defaults to the ${ir.auth.envVar} environment variable. */`);
     envLines.push(`  apiKey?: string;`);
   }
 
@@ -68,7 +71,7 @@ function buildClientClass(ir: IR): string {
     .join('\n');
 
   const apiKeyDefault = ir.auth.type !== 'none'
-    ? `options.apiKey ?? process.env['${ir.auth.envVar}'] ?? ''`
+    ? `options.apiKey ?? readEnv('${ir.auth.envVar}') ?? ''`
     : `options.apiKey ?? ''`;
 
   const baseURLDefault = ir.meta.baseURL

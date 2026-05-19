@@ -34,6 +34,15 @@ export interface RequestOptions {
   idempotencyKey?: string;
 }
 
+/** Pluggable logger. The client emits debug/info on request lifecycle and
+ *  warn/error on retry decisions. Defaults to no-op. */
+export interface Logger {
+  debug?: (msg: string, meta?: object) => void;
+  info?: (msg: string, meta?: object) => void;
+  warn?: (msg: string, meta?: object) => void;
+  error?: (msg: string, meta?: object) => void;
+}
+
 /** Options for the client constructor. */
 export interface ClientOptions {
   baseURL?: string;
@@ -42,7 +51,12 @@ export interface ClientOptions {
   maxRetries?: number;
   defaultHeaders?: Record<string, string>;
   defaultQuery?: QueryParams;
+  /** Custom fetch implementation. Defaults to `globalThis.fetch`. */
   fetch?: typeof globalThis.fetch;
+  /** Extra RequestInit options merged into every fetch call (lower precedence than per-call options). */
+  fetchOptions?: RequestInit;
+  /** Receives request lifecycle events. Falsy methods are skipped. */
+  logger?: Logger;
 }
 
 /** Something that can be uploaded — File, Blob, or ReadableStream. */

@@ -7,7 +7,9 @@ import { Stream, createSSEStream } from './streaming.js';
 import { AbstractPage, type PageClient } from './pagination.js';
 import { buildFormData, isUploadable } from './uploads.js';
 import { APIPromise } from './api-promise.js';
-import type { ClientOptions, RequestOptions, QueryParams, HeaderValue } from './types.js';
+import { buildHeaders, hasHeader } from './headers.js';
+import { PACKAGE_NAME, VERSION } from './version.js';
+import type { ClientOptions, Logger, RequestOptions, QueryParams, HeaderValue } from './types.js';
 
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_TIMEOUT = 60_000; // 60s
@@ -33,15 +35,8 @@ function withDefaultHeader(
   name: string,
   value: string,
 ): RequestOptions {
-  const existing = options?.headers;
-  const hasHeader = (() => {
-    if (!existing) return false;
-    if (existing instanceof Headers) return existing.has(name);
-    if (Array.isArray(existing)) return existing.some(([k]) => k.toLowerCase() === name.toLowerCase());
-    return Object.keys(existing).some((k) => k.toLowerCase() === name.toLowerCase());
-  })();
-  if (hasHeader) return options ?? {};
-  return { ...options, headers: { [name]: value, ...(existing as Record<string, HeaderValue> | undefined) } };
+  if (hasHeader(options?.headers, name)) return options ?? {};
+  return { ...options, headers: { [name]: value, ...(options?.headers as Record<string, HeaderValue> | undefined) } };
 }
 
 /**
@@ -56,6 +51,8 @@ export class BaseClient implements PageClient {
   private _fetch: typeof globalThis.fetch;
   private defaultHeaders: Record<string, string>;
   private defaultQuery: QueryParams;
+  private fetchOptions: RequestInit | undefined;
+  protected logger: Logger;
 
   constructor(options: ClientOptions) {
     this.baseURL = (options.baseURL ?? '').replace(/\/+$/, '');
@@ -65,6 +62,8 @@ export class BaseClient implements PageClient {
     this._fetch = options.fetch ?? globalThis.fetch;
     this.defaultHeaders = options.defaultHeaders ?? {};
     this.defaultQuery = options.defaultQuery ?? {};
+    this.fetchOptions = options.fetchOptions;
+    this.logger = options.logger ?? {};
   }
 
   // ── HTTP verb helpers ────────────────────────────────────────────────────
@@ -150,13 +149,17 @@ export class BaseClient implements PageClient {
     const headers = this._buildHeaders(options.headers);
     const body = this._buildBody(options.body, headers);
 
+    // Merge precedence (lowest → highest):
+    //   client.fetchOptions → method/headers/body/signal from options
     const init: RequestInit = {
+      ...this.fetchOptions,
       method: options.method ?? 'GET',
       headers,
       body,
       signal: options.signal,
     };
 
+    this.logger.debug?.('request', { method: init.method, url });
     return this._fetchWithRetry(
       url,
       init,
@@ -192,6 +195,7 @@ export class BaseClient implements PageClient {
         const delay = retryAfter
           ? parseInt(retryAfter, 10) * 1000
           : this._retryDelay(this.maxRetries - retriesRemaining);
+        this.logger.warn?.('retrying', { url, status: response.status, delayMs: delay, retriesRemaining });
         await sleep(delay);
         return this._fetchWithRetry(url, init, retriesRemaining - 1, timeout);
       }
@@ -200,22 +204,29 @@ export class BaseClient implements PageClient {
         throw await this._makeError(response);
       }
 
+      this.logger.debug?.('response', { url, status: response.status });
       return response;
     } catch (err) {
       clearTimeout(timeoutId);
 
-      if (err instanceof APIError) throw err;
+      if (err instanceof APIError) {
+        this.logger.error?.('api-error', { url, status: err.status });
+        throw err;
+      }
 
       if (controller.signal.aborted && !init.signal?.aborted) {
+        this.logger.error?.('timeout', { url, timeoutMs: timeout });
         throw new APITimeoutError();
       }
 
       if (retriesRemaining > 0 && isRetryableError(err)) {
+        this.logger.warn?.('retrying-network-error', { url, retriesRemaining });
         await sleep(this._retryDelay(this.maxRetries - retriesRemaining));
         return this._fetchWithRetry(url, init, retriesRemaining - 1, timeout);
       }
 
       if (err instanceof Error) {
+        this.logger.error?.('connection-error', { url, message: err.message });
         throw new APIConnectionError(err.message, err);
       }
       throw err;
@@ -250,42 +261,36 @@ export class BaseClient implements PageClient {
   private _buildHeaders(
     requestHeaders?: Record<string, HeaderValue> | Headers | [string, string][],
   ): Headers {
-    const headers = new Headers();
+    // Layered merge (lowest → highest precedence). buildHeaders handles
+    // case-insensitive dedup and treats null/undefined as "delete this header".
+    const auth = this.apiKey
+      ? { Authorization: `Bearer ${this.apiKey}` }
+      : undefined;
 
-    // Default headers
-    for (const [key, value] of Object.entries(this.defaultHeaders)) {
-      headers.set(key, value);
-    }
+    const headers = buildHeaders(
+      this._defaultRuntimeHeaders(),
+      this.defaultHeaders,
+      auth,
+      requestHeaders,
+    );
 
-    // Auth
-    if (this.apiKey) {
-      headers.set('Authorization', `Bearer ${this.apiKey}`);
-    }
-
-    // Request-specific headers
-    if (requestHeaders) {
-      const entries =
-        requestHeaders instanceof Headers
-          ? requestHeaders.entries()
-          : Array.isArray(requestHeaders)
-            ? requestHeaders
-            : Object.entries(requestHeaders);
-
-      for (const [key, value] of entries) {
-        if (value === null || value === undefined) {
-          headers.delete(key);
-        } else {
-          headers.set(key, value);
-        }
-      }
-    }
-
-    // Default content-type if not set and not FormData
-    if (!headers.has('Content-Type') && !headers.has('content-type')) {
+    // Default content-type if not set
+    if (!headers.has('content-type')) {
       headers.set('Content-Type', 'application/json');
     }
 
     return headers;
+  }
+
+  /**
+   * Headers we always want to set unless the user overrode them: User-Agent
+   * and Accept. Override these via `defaultHeaders` or per-call `headers`.
+   */
+  protected _defaultRuntimeHeaders(): Record<string, string> {
+    return {
+      Accept: 'application/json',
+      'User-Agent': `${PACKAGE_NAME}/${VERSION} (ironic)`,
+    };
   }
 
   private _buildBody(body: unknown, headers: Headers): BodyInit | null | undefined {
