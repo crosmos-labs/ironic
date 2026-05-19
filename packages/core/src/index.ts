@@ -97,7 +97,17 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
 
   // Derive meta from config + spec
   const packageName = config.targets.typescript?.package_name ?? 'my-sdk';
-  const baseName = packageName.replace(/^@[^/]+\//, '').replace(/-sdk$/, '');
+  // Strip scope, strip -sdk or sdk suffix, use spec title or org name as fallback
+  let baseName = packageName.replace(/^@([^/]+)\//, (_, scope) => {
+    // If package is just "@scope/sdk", use the scope as the name
+    return '';
+  }).replace(/[-_]?sdk$/i, '');
+
+  // If stripping left us empty (e.g. "@petstore/sdk" → ""), use the scope
+  if (!baseName) {
+    const scopeMatch = packageName.match(/^@([^/]+)\//);
+    baseName = scopeMatch?.[1] ?? spec.info.title.replace(/\s+API$/i, '') ?? 'My';
+  }
   const baseURL =
     config.client_settings?.base_url ??
     spec.servers[0]?.url ??

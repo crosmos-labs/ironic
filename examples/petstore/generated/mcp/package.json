@@ -1,7 +1,7 @@
 {
   "name": "@petstore/mcp-mcp",
   "version": "1.0.0",
-  "description": "MCP server for Sdk",
+  "description": "MCP server for Petstore",
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {

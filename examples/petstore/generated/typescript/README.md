@@ -11,9 +11,9 @@ npm install @petstore/sdk
 ## Usage
 
 ```typescript
-import { SdkClient } from '@petstore/sdk';
+import { PetstoreClient } from '@petstore/sdk';
 
-const client = new SdkClient();
+const client = new PetstoreClient();
 ```
 
 ## Authentication
@@ -27,7 +27,7 @@ export PETSTORE_API_KEY="your-api-key"
 Or pass it directly:
 
 ```typescript
-const client = new SdkClient({ apiKey: 'your-api-key' });
+const client = new PetstoreClient({ apiKey: 'your-api-key' });
 ```
 
 ---
