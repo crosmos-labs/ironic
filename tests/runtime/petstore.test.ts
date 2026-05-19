@@ -122,6 +122,50 @@ describe('petstore SDK runtime', () => {
     expect(receivedSignal).toBeDefined();
   });
 
+  it('sends default User-Agent reflecting the SDK package', async () => {
+    let captured: Headers | undefined;
+    installFetchMock(({ init }) => {
+      captured = new Headers(init.headers);
+      return { status: 200, body: { id: 'p1', name: 'A', species: 'dog', status: 'available', created_at: 't' } };
+    });
+    const client = new PetstoreClient({ apiKey: 'test' });
+    await client.pets.getPet('p1');
+    expect(captured?.get('user-agent')).toMatch(/^@petstore\/sdk\/\d+\.\d+\.\d+ \(ironic\)$/);
+  });
+
+  it('invokes the pluggable logger on request lifecycle', async () => {
+    installFetchMock(() => ({ status: 200, body: { id: 'p1', name: 'A', species: 'dog', status: 'available', created_at: 't' } }));
+    const events: string[] = [];
+    const client = new PetstoreClient({
+      apiKey: 'test',
+      logger: {
+        debug: (msg) => events.push(`debug:${msg}`),
+      },
+    });
+    await client.pets.getPet('p1');
+    expect(events).toContain('debug:request');
+    expect(events).toContain('debug:response');
+  });
+
+  it('forwards client-level fetchOptions to fetch', async () => {
+    let receivedInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init: RequestInit = {}) => {
+      receivedInit = init;
+      return new Response(JSON.stringify({ id: 'p1', name: 'A', species: 'dog', status: 'available', created_at: 't' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    const client = new PetstoreClient({
+      apiKey: 'test',
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+      fetchOptions: { redirect: 'manual', credentials: 'include' },
+    });
+    await client.pets.getPet('p1');
+    expect(receivedInit?.redirect).toBe('manual');
+    expect(receivedInit?.credentials).toBe('include');
+  });
+
   it('sends Bearer auth header', async () => {
     let captured: Headers | undefined;
     installFetchMock(({ init }) => {

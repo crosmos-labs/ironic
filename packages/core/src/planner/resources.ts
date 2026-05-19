@@ -1,7 +1,18 @@
 // ─── Resource Planner ────────────────────────────────────────────────────────
 // Map endpoints → resource tree. Two modes:
-// 1. Config-driven: user provides `resources:` in ironic.yml
+// 1. Config-driven: user provides Stainless-style `resources:` in the config
 // 2. Auto-inference: derive from path segments
+//
+// Stainless shape (config-driven):
+//   resources:
+//     spaces:
+//       models:
+//         space: '#/components/schemas/SpaceResponse'   # local name → schema ref
+//       methods:
+//         list: get /api/v1/spaces                       # shorthand
+//         create: post /api/v1/spaces
+//       subresources:
+//         drafts: { methods: ..., models: ... }
 
 import type { OperationObject, PathItemObject, ParameterObject } from 'openapi3-ts/oas31';
 import type { IronicConfig } from '../parser/config.schema.js';
@@ -19,11 +30,168 @@ import { IronicUserError } from '../errors.js';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
+// ── Resource shape we consume internally (post-normalization) ──────────────
+
+type NormalizedResource = {
+  /** Local resource name, e.g. "spaces" */
+  name: string;
+  /** name → {http, path, [overrides]} */
+  methods: Map<string, NormalizedMethod>;
+  /** Local model name (snake_case) → schema ref name (last segment of $ref) */
+  models: Map<string, string>;
+  /** child resources */
+  subresources: Map<string, NormalizedResource>;
+};
+
+type NormalizedMethod = {
+  httpMethod: string;
+  path: string;
+  pagination?: string;
+  deprecated?: boolean;
+  description?: string;
+};
+
+/**
+ * Normalize Stainless's resource shape into our internal type. Accepts both
+ * shorthand `"verb /path"` methods and object methods; accepts string-ref
+ * models and object models.
+ */
+function normalizeResource(name: string, raw: Record<string, unknown>): NormalizedResource {
+  const methods = new Map<string, NormalizedMethod>();
+  if (raw.methods && typeof raw.methods === 'object') {
+    for (const [methodName, methodSpec] of Object.entries(raw.methods as Record<string, unknown>)) {
+      if (typeof methodSpec === 'string') {
+        const [httpMethod, path] = parseVerbPath(methodSpec);
+        methods.set(methodName, { httpMethod, path });
+      } else if (methodSpec && typeof methodSpec === 'object') {
+        const obj = methodSpec as Record<string, unknown>;
+        const endpoint = (obj.endpoint as string | undefined) ?? '';
+        const [httpMethod, path] = parseVerbPath(endpoint);
+        methods.set(methodName, {
+          httpMethod,
+          path,
+          pagination: obj.paginated ? 'cursor' : (obj.pagination as string | undefined),
+          deprecated: obj.deprecated as boolean | undefined,
+          description: obj.description as string | undefined,
+        });
+      }
+    }
+  }
+
+  const models = new Map<string, string>();
+  if (raw.models && typeof raw.models === 'object') {
+    for (const [localName, modelSpec] of Object.entries(raw.models as Record<string, unknown>)) {
+      let ref: string | undefined;
+      if (typeof modelSpec === 'string') ref = modelSpec;
+      else if (modelSpec && typeof modelSpec === 'object') {
+        ref = (modelSpec as Record<string, unknown>).openapi_uri as string | undefined;
+      }
+      if (!ref) continue;
+      const schemaName = extractSchemaName(ref);
+      if (schemaName) models.set(localName, schemaName);
+    }
+  }
+
+  const subresources = new Map<string, NormalizedResource>();
+  if (raw.subresources && typeof raw.subresources === 'object') {
+    for (const [subName, subRaw] of Object.entries(raw.subresources as Record<string, unknown>)) {
+      if (subRaw && typeof subRaw === 'object') {
+        subresources.set(subName, normalizeResource(subName, subRaw as Record<string, unknown>));
+      }
+    }
+  }
+
+  return { name, methods, models, subresources };
+}
+
+function parseVerbPath(input: string): [string, string] {
+  const match = input.match(/^(get|post|put|patch|delete)\s+(\/\S*)/i);
+  if (!match) {
+    throw new IronicUserError(
+      'INVALID_METHOD_PATH',
+      `Invalid method endpoint: "${input}". Expected "verb /path".`,
+    );
+  }
+  return [match[1]!.toLowerCase(), match[2]!];
+}
+
+function extractSchemaName(ref: string): string | undefined {
+  const m = ref.match(/^#\/components\/schemas\/([^/]+)$/);
+  if (!m) return undefined;
+  return m[1];
+}
+
+/**
+ * Compute the emitted class name for a resource. If any local model in this
+ * resource's `models:` block PascalCases to the same name as the resource
+ * itself (e.g. `search` resource with a `search` model → both `Search`), the
+ * class is suffixed with `Resource` to avoid the TS name collision — matching
+ * Stainless's convention (`SearchResource`, `UsageResource`).
+ */
+function resourceClassName(resourceName: string, raw: Record<string, unknown> | undefined): string {
+  const base = pascalCase(resourceName);
+  if (!raw || typeof raw !== 'object') return base;
+  const models = (raw.models ?? {}) as Record<string, unknown>;
+  for (const modelLocalName of Object.keys(models)) {
+    if (pascalCase(modelLocalName) === base) return `${base}Resource`;
+  }
+  return base;
+}
+
+/**
+ * Walk the resources block and produce a `FinalTypeName → owningResourceName`
+ * map. Used by the type collector to attribute component-derived types to the
+ * resource they belong to so they can be emitted inline in the resource file
+ * (Stainless's convention).
+ *
+ * Example: `spaces.models.space: '#/components/schemas/SpaceResponse'` →
+ *          `{ Space: 'spaces' }`.
+ */
+export function collectModelOwnership(config: IronicConfig): Record<string, string> {
+  const owners: Record<string, string> = {};
+  if (!config.resources) return owners;
+  const walk = (defs: Record<string, unknown>) => {
+    for (const [resourceName, raw] of Object.entries(defs)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const norm = normalizeResource(resourceName, raw as Record<string, unknown>);
+      for (const localName of norm.models.keys()) {
+        owners[pascalCase(localName)] = camelCase(resourceName);
+      }
+      const subRaw = (raw as Record<string, unknown>).subresources;
+      if (subRaw && typeof subRaw === 'object') walk(subRaw as Record<string, unknown>);
+    }
+  };
+  walk(config.resources as Record<string, unknown>);
+  return owners;
+}
+
+/**
+ * Walk Stainless's resources block (with subresources) and return the union of
+ * model rename mappings: `OriginalSchemaName → LocalModelPascalCase`.
+ * e.g. `SpaceResponse → Space`, `SpaceListResponse → SpaceList`.
+ */
+export function collectModelRenames(config: IronicConfig): Record<string, string> {
+  const renames: Record<string, string> = {};
+  if (!config.resources) return renames;
+  const walk = (defs: Record<string, unknown>) => {
+    for (const [resourceName, raw] of Object.entries(defs)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const norm = normalizeResource(resourceName, raw as Record<string, unknown>);
+      for (const [localName, schemaName] of norm.models) {
+        renames[schemaName] = pascalCase(localName);
+      }
+      const subRaw = (raw as Record<string, unknown>).subresources;
+      if (subRaw && typeof subRaw === 'object') walk(subRaw as Record<string, unknown>);
+    }
+  };
+  walk(config.resources as Record<string, unknown>);
+  return renames;
+}
+
 /**
  * Predict the resource class names that planResources() will produce, without
  * walking schemas. Used by the type rename pass to avoid colliding a renamed
- * schema (e.g. `SearchResponse` → `Search`) with a resource class of the same
- * name. Mirrors the inference logic in planFromInference but skips method work.
+ * schema with a resource class of the same name.
  */
 export function predictResourceClassNames(
   config: IronicConfig,
@@ -32,23 +200,25 @@ export function predictResourceClassNames(
   const names = new Set<string>();
 
   if (config.resources) {
-    const walk = (defs: Record<string, { children?: typeof defs }>) => {
-      for (const [name, def] of Object.entries(defs)) {
-        names.add(pascalCase(name));
-        if (def.children) walk(def.children);
+    const walk = (defs: Record<string, unknown>) => {
+      for (const [name, raw] of Object.entries(defs)) {
+        names.add(resourceClassName(name, raw as Record<string, unknown> | undefined));
+        if (raw && typeof raw === 'object') {
+          const subs = (raw as Record<string, unknown>).subresources;
+          if (subs && typeof subs === 'object') walk(subs as Record<string, unknown>);
+        }
       }
     };
-    walk(config.resources as Record<string, { children?: Record<string, never> }>);
+    walk(config.resources as Record<string, unknown>);
     return [...names];
   }
 
-  const prefix = resolvePathPrefix(config, Object.keys(spec.paths));
+  const prefix = findCommonPathPrefix(Object.keys(spec.paths));
   for (const [path, pathItem] of Object.entries(spec.paths)) {
     for (const httpMethod of HTTP_METHODS) {
       if (!(pathItem as Record<string, unknown>)[httpMethod]) continue;
       const segments = getResourceSegments(path, prefix);
       if (segments[0]) names.add(pascalCase(segments[0]));
-      // Sub-resources surface as nested classes too.
       if (segments[1]) names.add(pascalCase(segments[1]));
     }
   }
@@ -76,59 +246,54 @@ function planFromConfig(
 ): ResourceNode[] {
   const resources: ResourceNode[] = [];
 
-  for (const [name, resourceDef] of Object.entries(config.resources!).sort(([a], [b]) => a.localeCompare(b))) {
-    resources.push(buildConfigResource(name, resourceDef, spec, config));
+  for (const [name, raw] of Object.entries(config.resources!).sort(([a], [b]) => a.localeCompare(b))) {
+    if (!raw || typeof raw !== 'object') continue;
+    const rawObj = raw as Record<string, unknown>;
+    const norm = normalizeResource(name, rawObj);
+    const className = resourceClassName(name, rawObj);
+    resources.push(buildConfigResource(norm, spec, config, className));
   }
 
   return resources;
 }
 
 function buildConfigResource(
-  name: string,
-  resourceDef: {
-    methods?: Record<string, { path: string; pagination?: string; stream_option?: boolean; response_unwrap?: string | boolean; deprecated?: boolean; description_override?: string }>;
-    children?: Record<string, typeof resourceDef>;
-  },
+  norm: NormalizedResource,
   spec: ParsedSpec,
   config: IronicConfig,
+  className: string,
 ): ResourceNode {
   const node: ResourceNode = {
-    name: camelCase(name),
-    className: pascalCase(name),
+    name: camelCase(norm.name),
+    className,
     methods: [],
     children: [],
   };
 
-  // Build methods
-  if (resourceDef.methods) {
-    for (const [methodName, methodDef] of Object.entries(resourceDef.methods).sort(([a], [b]) => a.localeCompare(b))) {
-      const [httpMethod, path] = parseMethodPath(methodDef.path);
-      const operation = findOperation(spec, httpMethod, path);
-
-      if (!operation) {
-        throw new IronicUserError(
-          'RESOURCE_PATH_NOT_FOUND',
-          `Path "${methodDef.path}" not found in spec. Check your resources config.`,
-        );
-      }
-
-      node.methods.push(
-        planMethod(camelCase(methodName), httpMethod, path, operation, {
-          pagination: methodDef.pagination,
-          streamOption: methodDef.stream_option,
-          responseUnwrap: methodDef.response_unwrap,
-          deprecated: methodDef.deprecated,
-          descriptionOverride: methodDef.description_override,
-        }, spec.schemaRegistry),
+  // Preserve declaration order from the config (Stainless convention).
+  for (const [methodName, methodDef] of norm.methods.entries()) {
+    const operation = findOperation(spec, methodDef.httpMethod, methodDef.path);
+    if (!operation) {
+      throw new IronicUserError(
+        'RESOURCE_PATH_NOT_FOUND',
+        `Endpoint "${methodDef.httpMethod} ${methodDef.path}" not found in spec. Check your resources config.`,
       );
     }
+
+    node.methods.push(
+      planMethod(camelCase(methodName), methodDef.httpMethod, methodDef.path, operation, {
+        pagination: methodDef.pagination,
+        deprecated: methodDef.deprecated,
+        descriptionOverride: methodDef.description,
+      }, spec.schemaRegistry),
+    );
   }
 
-  // Build children
-  if (resourceDef.children) {
-    for (const [childName, childDef] of Object.entries(resourceDef.children).sort(([a], [b]) => a.localeCompare(b))) {
-      node.children.push(buildConfigResource(childName, childDef, spec, config));
-    }
+  // Build children (use the same collision-aware naming for subresources)
+  for (const [, child] of [...norm.subresources.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    // Subresources don't share their raw object here; use the simple base name
+    // until we have a need for the collision rule at child depth.
+    node.children.push(buildConfigResource(child, spec, config, pascalCase(child.name)));
   }
 
   return node;
@@ -140,9 +305,8 @@ function planFromInference(
   spec: ParsedSpec,
   config: IronicConfig,
 ): ResourceNode[] {
-  const prefix = resolvePathPrefix(config, Object.keys(spec.paths));
+  const prefix = findCommonPathPrefix(Object.keys(spec.paths));
 
-  // Group operations by their resource path
   const groups = new Map<string, { httpMethod: string; path: string; operation: OperationObject; segments: string[] }[]>();
 
   for (const [path, pathItem] of Object.entries(spec.paths)) {
@@ -153,28 +317,21 @@ function planFromInference(
       const segments = getResourceSegments(path, prefix);
       const groupKey = segments[0] ?? '_root';
 
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, []);
-      }
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push({ httpMethod, path, operation, segments });
     }
   }
 
-  // Build resource tree from groups
   const resources: ResourceNode[] = [];
 
   for (const [groupKey, ops] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (groupKey === '_root') continue; // skip ungroupable paths
+    if (groupKey === '_root') continue;
 
-    // Check if we need nested resources (multiple distinct 2nd segments)
     const secondSegments = new Set(
-      ops
-        .map((op) => op.segments[1])
-        .filter((s): s is string => s !== undefined),
+      ops.map((op) => op.segments[1]).filter((s): s is string => s !== undefined),
     );
 
     if (secondSegments.size > 1) {
-      // Nested resources: e.g. chat.completions
       const resource: ResourceNode = {
         name: camelCase(groupKey),
         className: pascalCase(groupKey),
@@ -182,10 +339,13 @@ function planFromInference(
         children: [],
       };
 
-      // Group by second segment
       const subGroups = new Map<string, typeof ops>();
       for (const op of ops) {
-        const subKey = op.segments[1] ?? groupKey;
+        const subKey = op.segments[1];
+        if (!subKey) {
+          resource.methods.push(...buildMethods([op], spec.schemaRegistry, config, prefix, 1));
+          continue;
+        }
         if (!subGroups.has(subKey)) subGroups.set(subKey, []);
         subGroups.get(subKey)!.push(op);
       }
@@ -194,7 +354,6 @@ function planFromInference(
         const child: ResourceNode = {
           name: camelCase(subKey),
           className: pascalCase(subKey),
-          // resourceDepth=2: skip the group key + the sub-key in path tails
           methods: buildMethods(subOps, spec.schemaRegistry, config, prefix, 2),
           children: [],
         };
@@ -203,11 +362,9 @@ function planFromInference(
 
       resources.push(resource);
     } else {
-      // Flat resource
       resources.push({
         name: camelCase(groupKey),
         className: pascalCase(groupKey),
-        // resourceDepth=1: skip the group key in path tails
         methods: buildMethods(ops, spec.schemaRegistry, config, prefix, 1),
         children: [],
       });
@@ -217,30 +374,11 @@ function planFromInference(
   return resources;
 }
 
-/**
- * Detect operationIds that bake the path + verb into the name — typical of
- * FastAPI's auto-generated ids (e.g. `list_my_orgs_api_v1_orgs_get`). These
- * are server-side noise; we fall back to inferred names instead.
- */
 function isAutoGeneratedOperationId(opId: string, httpMethod: string): boolean {
   const suffix = `_${httpMethod.toLowerCase()}`;
   if (!opId.toLowerCase().endsWith(suffix)) return false;
-  // Heuristic: also needs the body to be long enough to plausibly encode a path.
-  // FastAPI's pattern (`name_path_segments_verb`) implies ≥ 3 underscores.
   const underscoreCount = (opId.match(/_/g) ?? []).length;
   return underscoreCount >= 3;
-}
-
-/**
- * Resolve the path prefix to strip during resource inference.
- * Honors config.paths.strip_prefix; if unset, auto-detects the longest common prefix.
- * Set strip_prefix to "" in config to disable both behaviors.
- */
-function resolvePathPrefix(config: IronicConfig, allPaths: string[]): string {
-  if (config.paths?.strip_prefix !== undefined) {
-    return config.paths.strip_prefix;
-  }
-  return findCommonPathPrefix(allPaths);
 }
 
 function buildMethods(
@@ -257,7 +395,6 @@ function buildMethods(
         ? camelCase(opId.split('.').pop() ?? opId)
         : inferMethodName(op.httpMethod, op.path, prefix, resourceDepth);
 
-      // Auto-detect pagination for GET list endpoints
       const pagination = detectPagination(op.httpMethod, op.operation, config);
 
       return planMethod(methodName, op.httpMethod, op.path, op.operation, pagination ? { pagination } : undefined, schemaRegistry);
@@ -266,8 +403,14 @@ function buildMethods(
 }
 
 /**
- * Detect if an operation matches a configured pagination scheme.
- * Checks if query params match the cursor_param/limit_param from config.
+ * Detect if an operation matches a Stainless-configured or heuristically-inferred
+ * pagination scheme.
+ *
+ * Priority: explicit config match → heuristic match.
+ * Heuristics (Tier 4):
+ *   - `limit`+`offset` query AND response has `count`/`total` → offset
+ *   - `after`/`cursor`+`limit` query AND response has `has_more`/`next_cursor` → cursor
+ *   - response has `next_cursor` AND an array field → cursor
  */
 function detectPagination(
   httpMethod: string,
@@ -275,57 +418,103 @@ function detectPagination(
   config?: IronicConfig,
 ): string | undefined {
   if (httpMethod.toLowerCase() !== 'get') return undefined;
-  if (!config?.pagination) return undefined;
 
   const params = (operation.parameters ?? []) as ParameterObject[];
   const queryNames = new Set(
     params.filter((p) => p.in === 'query').map((p) => p.name),
   );
 
-  // Check cursor pagination
-  if (config.pagination.cursor) {
-    const cursorParam = config.pagination.cursor.request.cursor_param;
-    if (queryNames.has(cursorParam)) {
-      return 'cursor';
+  // ── Explicit Stainless config match (single object or array of schemes) ──
+  if (config?.pagination) {
+    const schemes = Array.isArray(config.pagination) ? config.pagination : [config.pagination];
+    for (const scheme of schemes) {
+      const s = scheme as { type?: string; request?: Record<string, unknown> };
+      const req = s.request ?? {};
+      if (s.type === 'cursor' || s.type === 'cursor_id' || s.type === 'cursor_url') {
+        const cursorParam = (req.cursor_param as string) ?? 'after';
+        if (queryNames.has(cursorParam)) return 'cursor';
+      } else if (s.type === 'offset' || s.type === 'page_number') {
+        const pageParam = (req.page_param as string) ?? (req.offset_param as string) ?? 'page';
+        if (queryNames.has(pageParam)) return 'offset';
+      }
     }
   }
 
-  // Check offset pagination
-  if (config.pagination.offset) {
-    const pageParam = config.pagination.offset.request.page_param;
-    if (queryNames.has(pageParam)) {
-      return 'offset';
-    }
+  // ── Heuristic match ──
+  const responseProps = getResponseProperties(operation);
+
+  if (
+    queryNames.has('limit') &&
+    queryNames.has('offset') &&
+    (responseProps.has('count') || responseProps.has('total'))
+  ) {
+    return 'offset';
+  }
+
+  const hasCursorParam = queryNames.has('after') || queryNames.has('cursor');
+  const hasCursorResponse = responseProps.has('has_more') || responseProps.has('next_cursor');
+  if (hasCursorParam && queryNames.has('limit') && hasCursorResponse) {
+    return 'cursor';
+  }
+
+  if (responseProps.has('next_cursor') && hasArrayField(operation)) {
+    return 'cursor';
   }
 
   return undefined;
 }
 
-// ── Helpers ──
+function getResponseProperties(operation: OperationObject): Set<string> {
+  const responses = operation.responses ?? {};
+  const successCode =
+    Object.keys(responses).find((c) => c === '200') ??
+    Object.keys(responses).find((c) => c === '201') ??
+    Object.keys(responses).find((c) => c.startsWith('2'));
+  if (!successCode) return new Set();
 
-function parseMethodPath(input: string): [string, string] {
-  const match = input.match(/^(GET|POST|PUT|PATCH|DELETE)\s+(.+)$/);
-  if (!match) {
-    throw new IronicUserError(
-      'INVALID_METHOD_PATH',
-      `Invalid method path: "${input}". Expected "METHOD /path".`,
-    );
-  }
-  return [match[1]!.toLowerCase(), match[2]!];
+  const response = responses[successCode] as Record<string, unknown> | undefined;
+  const content = response?.content as Record<string, { schema?: Record<string, unknown> }> | undefined;
+  const schema = content?.['application/json']?.schema;
+  if (!schema || typeof schema !== 'object') return new Set();
+
+  const props = (schema as Record<string, unknown>).properties;
+  if (!props || typeof props !== 'object') return new Set();
+  return new Set(Object.keys(props as object));
 }
+
+function hasArrayField(operation: OperationObject): boolean {
+  const responses = operation.responses ?? {};
+  const successCode =
+    Object.keys(responses).find((c) => c === '200') ??
+    Object.keys(responses).find((c) => c === '201') ??
+    Object.keys(responses).find((c) => c.startsWith('2'));
+  if (!successCode) return false;
+
+  const response = responses[successCode] as Record<string, unknown> | undefined;
+  const content = response?.content as Record<string, { schema?: Record<string, unknown> }> | undefined;
+  const schema = content?.['application/json']?.schema;
+  if (!schema || typeof schema !== 'object') return false;
+
+  const props = (schema as Record<string, unknown>).properties as Record<string, unknown> | undefined;
+  if (!props) return false;
+  return Object.values(props).some(
+    (p) => typeof p === 'object' && p !== null && (p as Record<string, unknown>).type === 'array',
+  );
+}
+
+// ── Helpers ──
 
 function findOperation(
   spec: ParsedSpec,
   httpMethod: string,
   path: string,
 ): OperationObject | undefined {
-  // Try exact match first
   const pathItem = spec.paths[path] as Record<string, unknown> | undefined;
   if (pathItem) {
     return pathItem[httpMethod] as OperationObject | undefined;
   }
 
-  // Try with version prefix
+  // Fallback: try ignoring the version prefix
   for (const specPath of Object.keys(spec.paths)) {
     if (stripVersionPrefix(specPath) === path) {
       const item = spec.paths[specPath] as Record<string, unknown>;

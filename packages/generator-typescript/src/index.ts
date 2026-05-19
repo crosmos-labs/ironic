@@ -8,7 +8,7 @@ import type { IR, ResourceNode, TypeDef } from '@ironic/core';
 import { emitClientFile } from './emitters/client.js';
 import { emitResourceFile } from './emitters/resource.js';
 import { emitTypesFile, emitTypeDef } from './emitters/types.js';
-import { emitPackageJson, emitTsConfig, emitReadme } from './emitters/package-json.js';
+import { emitPackageJson, emitTsConfig, emitReadme, emitLicense } from './emitters/package-json.js';
 import { fileHeader } from './snippets/formatters.js';
 
 /** Map from relative file path → file contents */
@@ -30,6 +30,8 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   files.set('package.json', emitPackageJson(ir));
   files.set('tsconfig.json', emitTsConfig());
   files.set('README.md', emitReadme(ir));
+  const licenseText = emitLicense(ir);
+  if (licenseText) files.set('LICENSE', licenseText);
 
   // 2. Copy runtime files into src/core/
   copyRuntimeFiles(files, options.runtimeSrcDir, ir);
@@ -37,18 +39,89 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   // 3. Emit the main client
   files.set('src/client.ts', emitClientFile(ir));
 
-  // 4. Emit resource files
+  // 4. Partition types by ownership (Stainless: owned types inline in resource file,
+  //    shared go to types/shared.ts).
+  const { ownedByResource, shared, typeOwners } = partitionTypes(ir);
+  const sharedTypeNames = new Set(shared.map((t) => t.name));
+
+  // 5. Emit resource files with their owned types inlined.
   for (const resource of ir.resources) {
-    emitResourceTree(files, resource, 'src/resources');
+    emitResourceTree(files, resource, 'src/resources', ownedByResource, typeOwners, sharedTypeNames);
   }
 
-  // 5. Emit type files
-  emitTypes(files, ir.types);
+  // 6. Emit shared types file (only if there are any).
+  if (shared.length > 0) {
+    files.set('src/types/shared.ts', emitTypesFile(shared));
+    files.set('src/types/index.ts', `export * from './shared.js';\n`);
+  }
 
-  // 6. Emit index.ts (barrel export)
-  files.set('src/index.ts', emitIndexFile(ir));
+  // 7. Emit src/resources/index.ts barrel — re-exports each resource class
+  //    along with the types it owns. Mirrors Stainless's convention.
+  files.set('src/resources/index.ts', emitResourcesBarrel(ir.resources, ownedByResource));
+
+  // 8. Emit top-level index.ts (barrel)
+  files.set('src/index.ts', emitIndexFile(ir, shared.length > 0));
 
   return files;
+}
+
+/**
+ * Emit `src/resources/index.ts`: re-export each resource class and its owned
+ * types so callers can do `import { Spaces, type Space } from 'crosmos/resources'`.
+ */
+function emitResourcesBarrel(
+  resources: ResourceNode[],
+  ownedByResource: Map<string, TypeDef[]>,
+): string {
+  const lines: string[] = [fileHeader(), ''];
+
+  for (const resource of resources) {
+    const owned = ownedByResource.get(resource.name) ?? [];
+    const typeNames = owned.map((t) => `type ${t.name}`).sort();
+    const exports = [resource.className, ...typeNames].join(', ');
+    const filePath = resource.children.length > 0
+      ? `./${resource.name}/index.js`
+      : `./${resource.name}.js`;
+    lines.push(`export { ${exports} } from '${filePath}';`);
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Partition the IR's TypeDef list into:
+ *   - ownedByResource: Map<resourceName, TypeDef[]>  inline emit
+ *   - shared:         TypeDef[]                      types/shared.ts
+ *   - typeOwners:     Map<typeName, resourceName>    cross-resource import lookup
+ *
+ * Ownership comes from each TypeDef's `resourceName` (set by the planner from
+ * the `models:` block + inline-type discovery). Types with no resourceName are
+ * "shared" — referenced by multiple resources or generic system types.
+ */
+function partitionTypes(ir: IR): {
+  ownedByResource: Map<string, TypeDef[]>;
+  shared: TypeDef[];
+  typeOwners: Map<string, string>;
+} {
+  const ownedByResource = new Map<string, TypeDef[]>();
+  const shared: TypeDef[] = [];
+  const typeOwners = new Map<string, string>();
+
+  for (const type of ir.types) {
+    if (type.resourceName) {
+      // Strip any nested-resource suffix (`spaces.drafts` → `spaces`) — owned
+      // types live in the top-level resource file.
+      const owner = type.resourceName.split('.')[0]!;
+      typeOwners.set(type.name, owner);
+      const arr = ownedByResource.get(owner) ?? [];
+      arr.push(type);
+      ownedByResource.set(owner, arr);
+    } else {
+      shared.push(type);
+    }
+  }
+
+  return { ownedByResource, shared, typeOwners };
 }
 
 /**
@@ -137,61 +210,32 @@ function emitResourceTree(
   files: FileTree,
   resource: ResourceNode,
   basePath: string,
+  ownedByResource: Map<string, TypeDef[]>,
+  typeOwners: Map<string, string>,
+  sharedTypeNames: Set<string>,
 ): void {
+  const ctx = {
+    ownedTypes: ownedByResource.get(resource.name) ?? [],
+    typeOwners,
+    sharedTypeNames,
+  };
+
   if (resource.children.length > 0) {
-    // Nested resource: create a directory with index.ts
     const dirPath = `${basePath}/${resource.name}`;
-    files.set(`${dirPath}/index.ts`, emitResourceFile(resource));
+    files.set(`${dirPath}/index.ts`, emitResourceFile(resource, ctx));
 
     for (const child of resource.children) {
-      emitResourceTree(files, child, dirPath);
+      emitResourceTree(files, child, dirPath, ownedByResource, typeOwners, sharedTypeNames);
     }
   } else {
-    // Flat resource: single file
-    files.set(`${basePath}/${resource.name}.ts`, emitResourceFile(resource));
+    files.set(`${basePath}/${resource.name}.ts`, emitResourceFile(resource, ctx));
   }
-}
-
-/**
- * Emit type definition files, grouped by resource.
- */
-function emitTypes(files: FileTree, types: TypeDef[]): void {
-  if (types.length === 0) return;
-
-  // Group types by resource
-  const groups = new Map<string, TypeDef[]>();
-  const ungrouped: TypeDef[] = [];
-
-  for (const type of types) {
-    if (type.resourceName) {
-      const key = type.resourceName.split('.')[0] ?? 'shared';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(type);
-    } else {
-      ungrouped.push(type);
-    }
-  }
-
-  // Emit grouped files
-  for (const [group, defs] of groups) {
-    files.set(`src/types/${group}.ts`, emitTypesFile(defs));
-  }
-
-  // Emit ungrouped as shared
-  if (ungrouped.length > 0) {
-    files.set('src/types/shared.ts', emitTypesFile(ungrouped));
-  }
-
-  // Types barrel
-  const typeFiles = [...groups.keys(), ...(ungrouped.length > 0 ? ['shared'] : [])].sort();
-  const typeBarrel = typeFiles.map((f) => `export * from './${f}.js';`).join('\n') + '\n';
-  files.set('src/types/index.ts', typeBarrel);
 }
 
 /**
  * Emit the main index.ts barrel export.
  */
-function emitIndexFile(ir: IR): string {
+function emitIndexFile(ir: IR, hasSharedTypes: boolean): string {
   const lines: string[] = [
     fileHeader(),
     ``,
@@ -217,10 +261,12 @@ function emitIndexFile(ir: IR): string {
     }
   }
 
-  // Export types
-  lines.push('');
-  lines.push('// Types');
-  lines.push(`export * from './types/index.js';`);
+  // Shared types (only when there are any not owned by a resource)
+  if (hasSharedTypes) {
+    lines.push('');
+    lines.push('// Shared types');
+    lines.push(`export * from './types/index.js';`);
+  }
 
   return lines.join('\n') + '\n';
 }

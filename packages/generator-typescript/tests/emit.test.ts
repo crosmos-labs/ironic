@@ -22,8 +22,7 @@ describe('TypeScript generator (petstore)', () => {
     expect(paths).toContain('src/index.ts');
     expect(paths).toContain('src/resources/pets.ts');
     expect(paths).toContain('src/resources/owners.ts');
-    expect(paths).toContain('src/types/shared.ts');
-    expect(paths).toContain('src/types/index.ts');
+    expect(paths).toContain('src/resources/index.ts');
     expect(paths).toContain('src/core/api-client.ts');
     expect(paths).toContain('src/core/errors.ts');
   });
@@ -36,46 +35,49 @@ describe('TypeScript generator (petstore)', () => {
     const client = files.get('src/client.ts')!;
     expect(client).toContain('export class PetstoreClient');
     expect(client).toContain('export interface PetstoreClientOptions');
-    expect(client).toContain("baseURL: options.baseURL ?? 'https://api.petstore.io/v1'");
+    // Environments block resolves to the production URL.
+    expect(client).toContain("'production': 'https://api.petstore.io/v1'");
   });
 
-  it('resource uses named type refs', async () => {
+  it('resource inlines its owned types', async () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
     const files = emit(ir);
 
     const pets = files.get('src/resources/pets.ts')!;
-    // Should import types
-    expect(pets).toContain("import type { Pet, PetCreateParams, PetListPetsParams, PetUpdateParams } from '../types/index.js'");
-    // Method signatures should use refs, not inlined objects
+    // Method signatures should use refs, not inlined objects.
     expect(pets).toContain('body: PetCreateParams, options?: RequestOptions): APIPromise<Pet>');
     expect(pets).toContain('Promise<Pet>');
+    // Petstore has a single-resource use of Pet types — they all inline here.
+    expect(pets).toContain('export interface Pet ');
+    expect(pets).toContain('export interface PetCreateParams ');
+    expect(pets).toContain('export interface PetListPetsParams ');
+    // The declare-namespace block surfaces them under `Pets.Pet`.
+    expect(pets).toContain('export declare namespace Pets {');
   });
 
-  it('shared types file contains expected interfaces', async () => {
+  it('resources barrel re-exports each resource', async () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
     const files = emit(ir);
 
-    const shared = files.get('src/types/shared.ts')!;
-    expect(shared).toContain('export interface Pet {');
-    expect(shared).toContain('export interface Owner {');
-    expect(shared).toContain('export interface PetCreateParams {');
-    expect(shared).toContain('export interface PetUpdateParams {');
+    const barrel = files.get('src/resources/index.ts')!;
+    expect(barrel).toContain("export { Pets,");
+    expect(barrel).toContain("export { Owners,");
+    expect(barrel).toContain("type Pet");
   });
 
-  it('per-resource type files import from shared', async () => {
+  it('delete sends Accept */* via buildHeaders', async () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
     const files = emit(ir);
 
-    const petsTypes = files.get('src/types/pets.ts');
-    if (petsTypes) {
-      expect(petsTypes).toContain("import type { Pet } from './shared.js'");
-    }
+    const pets = files.get('src/resources/pets.ts')!;
+    expect(pets).toContain("import { buildHeaders } from '../core/headers.js'");
+    expect(pets).toContain("Accept: '*/*'");
   });
 
-  it('index.ts barrel exports everything', async () => {
+  it('index.ts barrel exports client + resources', async () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
     const files = emit(ir);
@@ -84,7 +86,6 @@ describe('TypeScript generator (petstore)', () => {
     expect(index).toContain("export { PetstoreClient } from './client.js'");
     expect(index).toContain("export { Pets } from './resources/pets.js'");
     expect(index).toContain("export { Owners } from './resources/owners.js'");
-    expect(index).toContain("export * from './types/index.js'");
   });
 
   it('snapshot: client.ts', async () => {
@@ -101,10 +102,10 @@ describe('TypeScript generator (petstore)', () => {
     expect(files.get('src/resources/pets.ts')).toMatchSnapshot();
   });
 
-  it('snapshot: types/shared.ts', async () => {
+  it('snapshot: resources/index.ts (barrel)', async () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
     const files = emit(ir);
-    expect(files.get('src/types/shared.ts')).toMatchSnapshot();
+    expect(files.get('src/resources/index.ts')).toMatchSnapshot();
   });
 });

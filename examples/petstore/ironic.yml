@@ -1,5 +1,11 @@
-version: 1
+# Stainless-shaped config.
+edition: 2026-02-23
+
+organization:
+  name: petstore
+
 spec: ./openapi.yaml
+
 targets:
   typescript:
     package_name: "@petstore/sdk"
@@ -11,19 +17,31 @@ targets:
     package_name: petstore-sdk
     output_dir: ./generated/python
 client_settings:
-  base_url: https://api.petstore.io/v1
-  timeout_ms: 30000
-  max_retries: 2
-auth:
-  type: bearer
-  env_var: PETSTORE_API_KEY
+  default_timeout: 30000
+  default_retries:
+    max_retries: 2
+  opts:
+    api_key:
+      type: string
+      auth:
+        security_scheme: HTTPBearer
+      read_env: PETSTORE_API_KEY
+
+security:
+  - HTTPBearer: []
+
+security_schemes:
+  HTTPBearer:
+    type: http
+    scheme: bearer
+
 pagination:
-  cursor:
-    request:
-      cursor_param: after
-      limit_param: limit
-    response:
-      items_key: data
-      has_more_key: has_more
-      cursor_source: last_item_id
-      cursor_field: id
+  type: cursor
+  request:
+    cursor_param: after
+    limit_param: limit
+  response:
+    items_key: data
+    has_more_key: has_more
+    cursor_source: last_item_id
+    cursor_field: id
