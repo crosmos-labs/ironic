@@ -33,9 +33,13 @@ function buildImports(resource: ResourceNode): string {
   }
 
   // Check if we need pagination imports
-  const hasPagination = resource.methods.some((m) => m.pagination);
-  if (hasPagination) {
-    lines.push(`import { CursorPage, OffsetPage } from '../core/pagination.js';`);
+  const hasCursorPagination = resource.methods.some((m) => m.pagination === 'cursor');
+  const hasOffsetPagination = resource.methods.some((m) => m.pagination === 'offset');
+  if (hasCursorPagination || hasOffsetPagination) {
+    const paginationImports: string[] = [];
+    if (hasCursorPagination) paginationImports.push('CursorPage');
+    if (hasOffsetPagination) paginationImports.push('OffsetPage');
+    lines.push(`import { ${paginationImports.join(', ')} } from '../core/pagination.js';`);
   }
 
   // Check if we need streaming imports
@@ -97,7 +101,7 @@ function emitMethod(method: MethodNode): string {
   const sig = buildMethodSignature(method);
   const body = buildMethodBody(method);
 
-  return joinBlocks(indent(doc), indent(`${sig} {\n${indent(body)}\n  }`));
+  return joinBlocks(indent(doc), indent(`${sig} {\n${indent(body)}\n}`));
 }
 
 /**
@@ -155,6 +159,13 @@ function buildMethodBody(method: MethodNode): string {
     return `return this._client.stream(${pathExpr}${optionsStr});`;
   }
 
+  // Paginated methods use getAPIList
+  if (method.pagination) {
+    const pageClass = method.pagination === 'cursor' ? 'CursorPage' : 'OffsetPage';
+    const itemType = emitTypeRef(extractPageItemType(method.responseType));
+    return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}${optionsStr});`;
+  }
+
   switch (httpMethod) {
     case 'get':
       return `return this._client.get(${pathExpr}${optionsStr});`;
@@ -206,5 +217,28 @@ function buildReturnType(method: MethodNode): string {
   if (method.streaming) {
     return `Stream<${emitTypeRef(method.responseType)}>`;
   }
+
+  // Paginated methods return a Page<ItemType>
+  if (method.pagination) {
+    const itemType = extractPageItemType(method.responseType);
+    const pageClass = method.pagination === 'cursor' ? 'CursorPage' : 'OffsetPage';
+    return `${pageClass}<${emitTypeRef(itemType)}>`;
+  }
+
   return emitTypeRef(method.responseType);
+}
+
+/**
+ * Extract the item type from a paginated response.
+ * E.g. { data: Pet[], has_more: boolean } → Pet
+ */
+function extractPageItemType(responseType: TypeRef): TypeRef {
+  if (responseType.kind === 'object') {
+    const dataProp = responseType.properties['data'];
+    if (dataProp && dataProp.type.kind === 'array') {
+      return dataProp.type.items;
+    }
+  }
+  // Fallback: return the response type itself
+  return responseType;
 }

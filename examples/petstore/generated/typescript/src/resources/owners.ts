@@ -9,7 +9,7 @@ export class Owners extends APIResource {
 
   async getOwner(ownerId: string): Promise<Owner> {
     return this._client.get(`/owners/${ownerId}`);
-    }
+  }
 
   /**
    * List all owners
@@ -20,5 +20,5 @@ export class Owners extends APIResource {
     total: number;
   }> {
     return this._client.get('/owners', { query });
-    }
+  }
 }

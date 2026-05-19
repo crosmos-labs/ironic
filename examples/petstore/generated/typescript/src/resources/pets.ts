@@ -1,4 +1,5 @@
 import { APIResource } from '../core/api-client.js';
+import { CursorPage } from '../core/pagination.js';
 import type { CreatePetRequest, Pet, UpdatePetRequest } from '../types/index.js';
 
 export class Pets extends APIResource {
@@ -11,7 +12,7 @@ export class Pets extends APIResource {
 
   async createPet(body: CreatePetRequest): Promise<Pet> {
     return this._client.post('/pets', { body });
-    }
+  }
 
   /**
    * Delete a pet
@@ -19,7 +20,7 @@ export class Pets extends APIResource {
 
   async deletePet(petId: string): Promise<void> {
     return this._client.delete(`/pets/${petId}`);
-    }
+  }
 
   /**
    * Get a pet by ID
@@ -27,18 +28,15 @@ export class Pets extends APIResource {
 
   async getPet(petId: string): Promise<Pet> {
     return this._client.get(`/pets/${petId}`);
-    }
+  }
 
   /**
    * Returns a paginated list of pets.
    */
 
-  async listPets(query?: { after?: string; limit?: number }): Promise<{
-    data: Pet[];
-    has_more: boolean;
-  }> {
-    return this._client.get('/pets', { query });
-    }
+  async listPets(query?: { after?: string; limit?: number }): Promise<CursorPage<Pet>> {
+    return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { query });
+  }
 
   /**
    * Update a pet
@@ -48,5 +46,5 @@ export class Pets extends APIResource {
 
   async updatePet(petId: string, body: UpdatePetRequest): Promise<Pet> {
     return this._client.patch(`/pets/${petId}`, { body });
-    }
+  }
 }

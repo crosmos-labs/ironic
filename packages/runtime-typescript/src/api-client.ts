@@ -74,20 +74,20 @@ export class BaseClient implements PageClient {
 
   // ── Pagination ───────────────────────────────────────────────────────────
 
-  async getAPIList<Item>(
+  async getAPIList<Item, P extends AbstractPage<Item>>(
     path: string,
-    PageClass: new (...args: ConstructorParameters<typeof AbstractPage<Item>>) => AbstractPage<Item>,
+    PageClass: new (...args: ConstructorParameters<typeof AbstractPage<Item>>) => P,
     options?: RequestOptions,
-  ): Promise<AbstractPage<Item>> {
+  ): Promise<P> {
     const response = await this._request({ ...options, method: 'GET', path });
     const body = await response.json();
     return new PageClass(this, body, { ...options, method: 'GET', path });
   }
 
-  async requestPage<Item>(
-    PageClass: new (...args: ConstructorParameters<typeof AbstractPage<Item>>) => AbstractPage<Item>,
+  async requestPage<Item, P extends AbstractPage<Item>>(
+    PageClass: new (...args: ConstructorParameters<typeof AbstractPage<Item>>) => P,
     options: RequestOptions,
-  ): Promise<AbstractPage<Item>> {
+  ): Promise<P> {
     const response = await this._request(options);
     const body = await response.json();
     return new PageClass(this, body, options);

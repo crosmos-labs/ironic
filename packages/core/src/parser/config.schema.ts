@@ -130,6 +130,19 @@ export const ConfigSchema = z.object({
     })
     .optional(),
 
+  paths: z
+    .object({
+      /**
+       * Strip this prefix from every OpenAPI path before grouping into resources.
+       *   strip_prefix: /api/v1
+       * "/api/v1/spaces" then groups as "spaces" instead of "api.v1.spaces".
+       * If unset, Ironic auto-detects the longest common prefix shared by every path.
+       * Set to "" to disable both behaviors.
+       */
+      strip_prefix: z.string().optional(),
+    })
+    .optional(),
+
   resources: z.record(ResourceSchema).optional(),
 
   methods: z.array(MethodOverrideSchema).optional(),

@@ -7,6 +7,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "vitest",
+    "test:runtime": "vitest run --config vitest.runtime.config.ts",
     "lint": "eslint packages",
     "format": "prettier --write packages docs",
     "dev:cli": "tsx packages/cli/src/index.ts"

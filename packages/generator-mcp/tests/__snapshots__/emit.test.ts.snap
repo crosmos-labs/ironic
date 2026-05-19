@@ -1,0 +1,102 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MCP generator (petstore) > snapshot: docs/pets.md 1`] = `
+"# Pets
+
+## client.pets.createPet(body)
+
+Create a new pet in the store.
+
+**Parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| \`body\` | \`CreatePetRequest\` | yes | Request body |
+
+**Returns**: \`Promise<Pet>\`
+
+**Example**
+
+\`\`\`typescript
+const result = await client.pets.createPet({ /* ... */ });
+return result;
+\`\`\`
+
+## client.pets.deletePet(petId)
+
+Delete a pet
+
+**Parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| \`petId\` | \`string\` | yes |  |
+
+**Returns**: \`Promise<void>\`
+
+**Example**
+
+\`\`\`typescript
+await client.pets.deletePet('example_pet_id');
+\`\`\`
+
+## client.pets.getPet(petId)
+
+Get a pet by ID
+
+**Parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| \`petId\` | \`string\` | yes |  |
+
+**Returns**: \`Promise<Pet>\`
+
+**Example**
+
+\`\`\`typescript
+const result = await client.pets.getPet('example_pet_id');
+return result;
+\`\`\`
+
+## client.pets.listPets(params?)
+
+Returns a paginated list of pets.
+
+**Parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| \`limit\` | \`number\` | no |  |
+| \`after\` | \`string\` | no |  |
+
+**Returns**: \`Promise<{ data: Pet[]; has_more: boolean }>\`
+
+**Example**
+
+\`\`\`typescript
+const result = await client.pets.listPets({ limit: 10, after: 'example' });
+return result;
+\`\`\`
+
+## client.pets.updatePet(petId, body)
+
+Update a pet
+
+**Parameters**
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| \`petId\` | \`string\` | yes |  |
+| \`body\` | \`UpdatePetRequest\` | yes | Request body |
+
+**Returns**: \`Promise<Pet>\`
+
+**Example**
+
+\`\`\`typescript
+const result = await client.pets.updatePet('example_pet_id', { /* ... */ });
+return result;
+\`\`\`
+"
+`;
