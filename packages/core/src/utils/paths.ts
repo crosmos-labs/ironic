@@ -119,19 +119,21 @@ export function inferMethodName(
   httpMethod: string,
   path: string,
   prefix?: string,
+  resourceDepth = 0,
 ): string {
   const stripped = prefix ? stripPrefix(path, prefix) : stripVersionPrefix(path);
-  const segments = splitPathSegments(stripped);
-  const lastSegment = segments[segments.length - 1];
+  const allSegments = splitPathSegments(stripped);
+  // Skip the segments owned by the resource so we reason about the *tail*
+  // (the bit beyond the resource's own path).
+  const segments = allSegments.slice(resourceDepth);
+  const lastSegment = segments[segments.length - 1] ?? allSegments[allSegments.length - 1];
   const hasTrailingParam = lastSegment ? isPathParam(lastSegment) : false;
 
-  // POST /resource/{id}/verb → verb
-  if (
-    httpMethod === 'post' &&
-    segments.length >= 3 &&
-    !isPathParam(lastSegment!)
-  ) {
-    return lastSegment!;
+  // Sub-action: any verb on `/resource[/{id}]/action` where `action` is a
+  // non-param tail segment beyond the resource itself.
+  const tailNonParams = segments.filter((s) => !isPathParam(s));
+  if (tailNonParams.length >= 1 && !isPathParam(lastSegment!)) {
+    return tailNonParams[tailNonParams.length - 1]!;
   }
 
   const method = httpMethod.toLowerCase();
