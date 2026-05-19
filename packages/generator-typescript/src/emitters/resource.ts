@@ -5,6 +5,7 @@ import type { ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/core'
 import { camelCase } from '@ironic/core';
 import { emitTypeRef } from './types.js';
 import { indent, jsdoc, joinBlocks } from '../snippets/formatters.js';
+import { collectResourceTypeRefs } from '../snippets/type-refs.js';
 
 /**
  * Emit a single resource file.
@@ -41,6 +42,13 @@ function buildImports(resource: ResourceNode): string {
   const hasStreaming = resource.methods.some((m) => m.streaming);
   if (hasStreaming) {
     lines.push(`import { Stream } from '../core/streaming.js';`);
+  }
+
+  // Import referenced types
+  const typeRefs = collectResourceTypeRefs(resource);
+  if (typeRefs.size > 0) {
+    const sorted = [...typeRefs].sort();
+    lines.push(`import type { ${sorted.join(', ')} } from '../types/index.js';`);
   }
 
   return lines.join('\n');

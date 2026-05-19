@@ -1,4 +1,5 @@
 import { APIResource } from '../core/api-client.js';
+import type { CreatePetRequest, Pet, UpdatePetRequest } from '../types/index.js';
 
 export class Pets extends APIResource {
 
@@ -8,21 +9,7 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async createPet(body: {
-    age?: number;
-    name: string;
-    species: 'dog' | 'cat' | 'bird' | 'fish';
-    tags?: string[];
-  }): Promise<{
-    age?: number;
-    created_at: string;
-    id: string;
-    name: string;
-    owner_id?: string | null;
-    species: 'dog' | 'cat' | 'bird' | 'fish';
-    status: 'available' | 'pending' | 'sold';
-    tags?: string[];
-  }> {
+  async createPet(body: CreatePetRequest): Promise<Pet> {
     return this._client.post('/pets', { body });
     }
 
@@ -38,16 +25,7 @@ export class Pets extends APIResource {
    * Get a pet by ID
    */
 
-  async getPet(petId: string): Promise<{
-    age?: number;
-    created_at: string;
-    id: string;
-    name: string;
-    owner_id?: string | null;
-    species: 'dog' | 'cat' | 'bird' | 'fish';
-    status: 'available' | 'pending' | 'sold';
-    tags?: string[];
-  }> {
+  async getPet(petId: string): Promise<Pet> {
     return this._client.get(`/pets/${petId}`);
     }
 
@@ -56,16 +34,7 @@ export class Pets extends APIResource {
    */
 
   async listPets(query?: { after?: string; limit?: number }): Promise<{
-    data: ({
-    age?: number;
-    created_at: string;
-    id: string;
-    name: string;
-    owner_id?: string | null;
-    species: 'dog' | 'cat' | 'bird' | 'fish';
-    status: 'available' | 'pending' | 'sold';
-    tags?: string[];
-  })[];
+    data: Pet[];
     has_more: boolean;
   }> {
     return this._client.get('/pets', { query });
@@ -77,21 +46,7 @@ export class Pets extends APIResource {
    * @param body Request body
    */
 
-  async updatePet(petId: string, body: {
-    age?: number;
-    name?: string;
-    status?: 'available' | 'pending' | 'sold';
-    tags?: string[];
-  }): Promise<{
-    age?: number;
-    created_at: string;
-    id: string;
-    name: string;
-    owner_id?: string | null;
-    species: 'dog' | 'cat' | 'bird' | 'fish';
-    status: 'available' | 'pending' | 'sold';
-    tags?: string[];
-  }> {
+  async updatePet(petId: string, body: UpdatePetRequest): Promise<Pet> {
     return this._client.patch(`/pets/${petId}`, { body });
     }
 }

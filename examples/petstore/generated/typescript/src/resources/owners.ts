@@ -1,4 +1,5 @@
 import { APIResource } from '../core/api-client.js';
+import type { Owner } from '../types/index.js';
 
 export class Owners extends APIResource {
 
@@ -6,12 +7,7 @@ export class Owners extends APIResource {
    * Get an owner
    */
 
-  async getOwner(ownerId: string): Promise<{
-    email: string;
-    id: string;
-    name: string;
-    pets?: string[];
-  }> {
+  async getOwner(ownerId: string): Promise<Owner> {
     return this._client.get(`/owners/${ownerId}`);
     }
 
@@ -20,12 +16,7 @@ export class Owners extends APIResource {
    */
 
   async listOwners(query?: { limit?: number }): Promise<{
-    data: {
-    email: string;
-    id: string;
-    name: string;
-    pets?: string[];
-  }[];
+    data: Owner[];
     total: number;
   }> {
     return this._client.get('/owners', { query });

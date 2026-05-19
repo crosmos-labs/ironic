@@ -49,7 +49,7 @@ export function schemaToTypeRef(
   if (schema.oneOf || schema.anyOf) {
     const variants = (schema.oneOf ?? schema.anyOf)!;
     const members = variants.map((v, i) =>
-      schemaToTypeRef(v as SchemaObject, nameHint ? `${nameHint}Variant${i}` : undefined),
+      schemaToTypeRef(v as SchemaObject, nameHint ? `${nameHint}Variant${i}` : undefined, schemaRegistry),
     );
     return {
       kind: 'union',
@@ -61,7 +61,7 @@ export function schemaToTypeRef(
   // allOf → intersection
   if (schema.allOf) {
     const members = schema.allOf.map((v, i) =>
-      schemaToTypeRef(v as SchemaObject, nameHint ? `${nameHint}Part${i}` : undefined),
+      schemaToTypeRef(v as SchemaObject, nameHint ? `${nameHint}Part${i}` : undefined, schemaRegistry),
     );
     return { kind: 'intersection', members };
   }
@@ -71,6 +71,7 @@ export function schemaToTypeRef(
     const items = schemaToTypeRef(
       schema.items as SchemaObject | undefined,
       nameHint ? `${nameHint}Item` : undefined,
+      schemaRegistry,
     );
     return { kind: 'array', items };
   }
@@ -85,6 +86,7 @@ export function schemaToTypeRef(
         type: schemaToTypeRef(
           propSchema as SchemaObject,
           nameHint ? `${nameHint}${pascalCase(propName)}` : undefined,
+          schemaRegistry,
         ),
         required: required.has(propName),
         description: (propSchema as SchemaObject).description,
@@ -96,7 +98,7 @@ export function schemaToTypeRef(
       const valueType =
         schema.additionalProperties === true
           ? { kind: 'primitive' as const, type: 'unknown' as const }
-          : schemaToTypeRef(schema.additionalProperties as SchemaObject);
+          : schemaToTypeRef(schema.additionalProperties as SchemaObject, undefined, schemaRegistry);
 
       return {
         kind: 'record',
@@ -120,7 +122,7 @@ export function schemaToTypeRef(
   const schemaAny = schema as Record<string, unknown>;
   if (schemaAny.nullable) {
     const { nullable: _, ...rest } = schemaAny;
-    const inner = schemaToTypeRef(rest as SchemaObject, nameHint);
+    const inner = schemaToTypeRef(rest as SchemaObject, nameHint, schemaRegistry);
     return { kind: 'nullable', inner };
   }
 
@@ -131,12 +133,12 @@ export function schemaToTypeRef(
     const nonNullTypes = types.filter((t) => t !== 'null');
 
     if (nonNullTypes.length === 1) {
-      const inner = schemaToTypeRef({ ...schema, type: nonNullTypes[0] } as SchemaObject, nameHint);
+      const inner = schemaToTypeRef({ ...schema, type: nonNullTypes[0] } as SchemaObject, nameHint, schemaRegistry);
       return hasNull ? { kind: 'nullable', inner } : inner;
     }
     // Multiple non-null types — rare, treat as union
     const members = nonNullTypes.map((t) =>
-      schemaToTypeRef({ ...schema, type: t } as SchemaObject, nameHint),
+      schemaToTypeRef({ ...schema, type: t } as SchemaObject, nameHint, schemaRegistry),
     );
     if (hasNull) members.push({ kind: 'primitive', type: 'null' });
     return { kind: 'union', members };

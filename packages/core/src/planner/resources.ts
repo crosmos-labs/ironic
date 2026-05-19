@@ -82,7 +82,7 @@ function buildConfigResource(
           responseUnwrap: methodDef.response_unwrap,
           deprecated: methodDef.deprecated,
           descriptionOverride: methodDef.description_override,
-        }),
+        }, spec.schemaRegistry),
       );
     }
   }
@@ -155,7 +155,7 @@ function planFromInference(
         const child: ResourceNode = {
           name: camelCase(subKey),
           className: pascalCase(subKey),
-          methods: buildMethods(subOps),
+          methods: buildMethods(subOps, spec.schemaRegistry),
           children: [],
         };
         resource.children.push(child);
@@ -167,7 +167,7 @@ function planFromInference(
       resources.push({
         name: camelCase(groupKey),
         className: pascalCase(groupKey),
-        methods: buildMethods(ops),
+        methods: buildMethods(ops, spec.schemaRegistry),
         children: [],
       });
     }
@@ -178,6 +178,7 @@ function planFromInference(
 
 function buildMethods(
   ops: { httpMethod: string; path: string; operation: OperationObject }[],
+  schemaRegistry?: Map<object, string>,
 ): ReturnType<typeof planMethod>[] {
   return ops
     .map((op) => {
@@ -185,7 +186,7 @@ function buildMethods(
         ? camelCase(op.operation.operationId.split('.').pop() ?? op.operation.operationId)
         : inferMethodName(op.httpMethod, op.path);
 
-      return planMethod(methodName, op.httpMethod, op.path, op.operation);
+      return planMethod(methodName, op.httpMethod, op.path, op.operation, undefined, schemaRegistry);
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }

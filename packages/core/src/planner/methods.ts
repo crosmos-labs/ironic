@@ -21,6 +21,7 @@ export function planMethod(
     deprecated?: boolean;
     descriptionOverride?: string;
   },
+  schemaRegistry?: Map<object, string>,
 ): MethodNode {
   // Extract parameters
   const params = (operation.parameters ?? []) as ParameterObject[];
@@ -31,7 +32,7 @@ export function planMethod(
     const node: ParamNode = {
       name: param.name,
       tsName: camelCase(param.name),
-      type: schemaToTypeRef(param.schema as SchemaObject | undefined, param.name),
+      type: schemaToTypeRef(param.schema as SchemaObject | undefined, param.name, schemaRegistry),
       required: param.required ?? false,
       description: param.description,
     };
@@ -54,12 +55,12 @@ export function planMethod(
 
     const bodySchema = jsonContent?.schema ?? formContent?.schema;
     if (bodySchema) {
-      requestBody = schemaToTypeRef(bodySchema, `${name}Body`);
+      requestBody = schemaToTypeRef(bodySchema, `${name}Body`, schemaRegistry);
     }
   }
 
   // Extract response type
-  const responseType = resolveResponseType(operation, name);
+  const responseType = resolveResponseType(operation, name, schemaRegistry);
 
   // Detect streaming from response content-type
   const streaming = detectStreaming(operation);
@@ -88,7 +89,7 @@ export function planMethod(
  * Resolve the success response type from an operation.
  * Prefers 200, then 201, then 2xx, then first response.
  */
-function resolveResponseType(operation: OperationObject, methodName: string): TypeRef {
+function resolveResponseType(operation: OperationObject, methodName: string, schemaRegistry?: Map<object, string>): TypeRef {
   const responses = operation.responses ?? {};
   const statusCodes = Object.keys(responses);
 
@@ -113,7 +114,7 @@ function resolveResponseType(operation: OperationObject, methodName: string): Ty
   const jsonContent = content['application/json'];
   if (!jsonContent?.schema) return { kind: 'primitive', type: 'void' };
 
-  return schemaToTypeRef(jsonContent.schema, `${methodName}Response`);
+  return schemaToTypeRef(jsonContent.schema, `${methodName}Response`, schemaRegistry);
 }
 
 /**
