@@ -19,9 +19,8 @@ export function emitTypeRef(ref: TypeRef): string {
       ).join(' | ');
 
     case 'array':
-      const inner = emitTypeRef(ref.items);
-      // Wrap unions in parens for readability: (A | B)[]
-      return inner.includes('|') ? `(${inner})[]` : `${inner}[]`;
+      // Stainless emits `Array<T>` consistently — matches their textual output.
+      return `Array<${emitTypeRef(ref.items)}>`;
 
     case 'nullable':
       return `${emitTypeRef(ref.inner)} | null`;
@@ -33,7 +32,8 @@ export function emitTypeRef(ref: TypeRef): string {
       return ref.members.map(emitTypeRef).join(' & ');
 
     case 'record':
-      return `Record<string, ${emitTypeRef(ref.valueType)}>`;
+      // Stainless emits the index-signature form, not Record<>.
+      return `{ [key: string]: ${emitTypeRef(ref.valueType)} }`;
 
     case 'object':
       return emitInlineObject(ref.properties);
@@ -45,12 +45,13 @@ export function emitTypeRef(ref: TypeRef): string {
 
 /**
  * Emit an inline object type: `{ foo: string; bar?: number }`.
+ * Preserves declaration order (matches Stainless's source-order emission).
  */
 function emitInlineObject(
   properties: Record<string, { type: TypeRef; required: boolean; description?: string }>,
 ): string {
-  const entries = Object.entries(properties).sort(([a], [b]) => a.localeCompare(b));
-  if (entries.length === 0) return 'Record<string, unknown>';
+  const entries = Object.entries(properties);
+  if (entries.length === 0) return '{ [key: string]: unknown }';
 
   const props = entries.map(([name, prop]) => {
     const opt = prop.required ? '' : '?';
@@ -66,18 +67,19 @@ function emitInlineObject(
 export function emitTypeDef(def: TypeDef): string {
   const doc = jsdoc(def.description);
 
-  // Object types → interface
+  // Object types → interface. Properties stay in source order (Stainless style)
+  // and are separated by blank lines.
   if (def.type.kind === 'object') {
-    const entries = Object.entries(def.type.properties).sort(([a], [b]) => a.localeCompare(b));
+    const entries = Object.entries(def.type.properties);
     const props = entries.map(([name, prop]) => {
-      const propDoc = prop.description ? `  /** ${prop.description} */\n` : '';
+      const propDoc = prop.description ? `  /**\n   * ${prop.description}\n   */\n` : '';
       const opt = prop.required ? '' : '?';
       return `${propDoc}  ${name}${opt}: ${emitTypeRef(prop.type)};`;
     });
 
     return joinBlocks(
       doc,
-      `export interface ${def.name} {\n${props.join('\n')}\n}`,
+      `export interface ${def.name} {\n${props.join('\n\n')}\n}`,
     );
   }
 

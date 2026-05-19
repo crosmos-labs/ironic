@@ -181,9 +181,11 @@ function walkResource(
       }
     }
 
-    // Collect inline response types
+    // Collect inline response types and rewrite the method's responseType to
+    // point at the synthesized name. Matches Stainless's `*Response` aliasing
+    // (e.g. `health.check` → `export type HealthCheckResponse = ...`).
     if (isInlineType(method.responseType)) {
-      const name = pascalCase(`${method.name}Response`);
+      const name = `${resource.className}${pascalCase(method.name)}Response`;
       if (!types.has(name)) {
         types.set(name, {
           name,
@@ -192,6 +194,7 @@ function walkResource(
           resourceName,
         });
       }
+      method.responseType = { kind: 'ref', name };
     }
 
     // Synthesize a *Params interface for methods with query params,
@@ -259,9 +262,15 @@ function paramsToObjectTypeRef(params: ParamNode[]): TypeRef {
 }
 
 /**
- * Check if a TypeRef is an inline type that needs its own definition.
- * Primitives, refs, and enums don't need separate defs.
+ * Check if a TypeRef is an inline type that benefits from a named alias.
+ * Primitives, refs, enums, arrays, and nullables don't need separate defs;
+ * everything else gets a synthesized `*Response` / `*Params` name.
  */
 function isInlineType(ref: TypeRef): boolean {
-  return ref.kind === 'object' || ref.kind === 'union' || ref.kind === 'intersection';
+  return (
+    ref.kind === 'object' ||
+    ref.kind === 'union' ||
+    ref.kind === 'intersection' ||
+    ref.kind === 'record'
+  );
 }

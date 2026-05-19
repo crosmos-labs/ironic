@@ -20,14 +20,18 @@ export function joinBlocks(...blocks: (string | undefined | null | false)[]): st
   return blocks.filter(Boolean).join('\n\n');
 }
 
-/** Wrap in a JSDoc comment. */
+/** Wrap in a JSDoc comment. Normalizes whitespace to match Stainless's output. */
 export function jsdoc(description?: string, params?: { name: string; description: string }[]): string {
   if (!description && (!params || params.length === 0)) return '';
 
   const lines: string[] = ['/**'];
   if (description) {
-    for (const line of description.split('\n')) {
-      lines.push(` * ${line}`);
+    // OpenAPI sources often contain Markdown-style double backticks (``foo``)
+    // which Stainless normalizes to single backticks. Match that.
+    const normalized = description.replace(/``([^`]+)``/g, '`$1`');
+    for (const line of normalized.split('\n')) {
+      // Blank lines in JSDoc are ` *` (no trailing space), not ` * `.
+      lines.push(line.length === 0 ? ' *' : ` * ${line}`);
     }
   }
   if (params && params.length > 0) {

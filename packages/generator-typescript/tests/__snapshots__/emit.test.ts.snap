@@ -48,8 +48,8 @@ export class PetstoreClient extends BaseClient {
 exports[`TypeScript generator (petstore) > snapshot: resources/index.ts (barrel) 1`] = `
 "// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
 
-export { Owners, type ListOwnersResponse, type Owner, type OwnerListOwnersParams } from './owners.js';
-export { Pets, type ListPetsResponse, type Pet, type PetCreateParams, type PetListPetsParams, type PetUpdateParams } from './pets.js';
+export { Owners, type Owner, type OwnerListOwnersParams, type OwnersListOwnersResponse } from './owners.js';
+export { Pets, type Pet, type PetCreateParams, type PetListPetsParams, type PetUpdateParams, type PetsListPetsResponse } from './pets.js';
 "
 `;
 
@@ -70,33 +70,32 @@ export class Pets extends APIResource {
    *
    * @param body Request body
    */
-
   createPet(body: PetCreateParams, options?: RequestOptions): APIPromise<Pet> {
-    return this._client.post('/pets', { ...options, body });
+    return this._client.post('/pets', { body, ...options });
   }
 
   /**
    * Delete a pet
    */
-
   deletePet(petId: string, options?: RequestOptions): APIPromise<void> {
-    return this._client.delete(path\`/pets/\${petId}\`, { ...options, headers: buildHeaders({ Accept: '*/*' }, options?.headers) });
+    return this._client.delete(path\`/pets/\${petId}\`, {
+      ...options,
+      headers: buildHeaders([{ Accept: '*/*' }, options?.headers]),
+    });
   }
 
   /**
    * Get a pet by ID
    */
-
   getPet(petId: string, options?: RequestOptions): APIPromise<Pet> {
-    return this._client.get(path\`/pets/\${petId}\`, { ...options });
+    return this._client.get(path\`/pets/\${petId}\`, options);
   }
 
   /**
    * Returns a paginated list of pets.
    */
-
-  async listPets(query?: PetListPetsParams | null, options?: RequestOptions): Promise<CursorPage<Pet>> {
-    return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { ...options, query });
+  async listPets(query: PetListPetsParams | null | undefined = {}, options?: RequestOptions): Promise<CursorPage<PetsListPetsResponse>> {
+    return this._client.getAPIList<PetsListPetsResponse, CursorPage<PetsListPetsResponse>>('/pets', CursorPage, { query, ...options });
   }
 
   /**
@@ -104,9 +103,8 @@ export class Pets extends APIResource {
    *
    * @param body Request body
    */
-
   updatePet(petId: string, body: PetUpdateParams, options?: RequestOptions): APIPromise<Pet> {
-    return this._client.patch(path\`/pets/\${petId}\`, { ...options, body });
+    return this._client.patch(path\`/pets/\${petId}\`, { body, ...options });
   }
 }
 
@@ -115,10 +113,13 @@ export class Pets extends APIResource {
  */
 
 export interface PetCreateParams {
-  age?: number;
   name: string;
+
   species: 'dog' | 'cat' | 'bird' | 'fish';
-  tags?: string[];
+
+  age?: number;
+
+  tags?: Array<string>;
 }
 
 /**
@@ -126,21 +127,42 @@ export interface PetCreateParams {
  */
 
 export interface Pet {
-  /** Age in years */
-  age?: number;
-  created_at: string;
-  /** Unique identifier */
+  /**
+   * Unique identifier
+   */
   id: string;
-  /** The pet's name */
+
+  /**
+   * The pet's name
+   */
   name: string;
-  /** Owner's ID (if adopted) */
-  owner_id?: string | null;
-  /** The species of the pet */
+
+  /**
+   * The species of the pet
+   */
   species: 'dog' | 'cat' | 'bird' | 'fish';
-  /** Current adoption status */
+
+  /**
+   * Current adoption status
+   */
   status: 'available' | 'pending' | 'sold';
-  /** Tags for categorization */
-  tags?: string[];
+
+  /**
+   * Age in years
+   */
+  age?: number;
+
+  /**
+   * Owner's ID (if adopted)
+   */
+  owner_id?: string | null;
+
+  /**
+   * Tags for categorization
+   */
+  tags?: Array<string>;
+
+  created_at: string;
 }
 
 /**
@@ -148,29 +170,34 @@ export interface Pet {
  */
 
 export interface PetUpdateParams {
-  age?: number;
   name?: string;
+
   status?: 'available' | 'pending' | 'sold';
-  tags?: string[];
+
+  age?: number;
+
+  tags?: Array<string>;
 }
 
-export interface ListPetsResponse {
-  data: Pet[];
+export interface PetsListPetsResponse {
+  data: Array<Pet>;
+
   has_more: boolean;
 }
 
 export interface PetListPetsParams {
-  after?: string;
   limit?: number;
+
+  after?: string;
 }
 
 export declare namespace Pets {
   export {
-    type ListPetsResponse as ListPetsResponse,
     type Pet as Pet,
     type PetCreateParams as PetCreateParams,
     type PetListPetsParams as PetListPetsParams,
     type PetUpdateParams as PetUpdateParams,
+    type PetsListPetsResponse as PetsListPetsResponse,
   };
 }
 "

@@ -70,7 +70,7 @@ Returns a paginated list of pets.
 | \`limit\` | \`number\` | no |  |
 | \`after\` | \`string\` | no |  |
 
-**Returns**: \`Promise<{ data: Pet[]; has_more: boolean }>\`
+**Returns**: \`Promise<PetsListPetsResponse>\`
 
 **Example**
 

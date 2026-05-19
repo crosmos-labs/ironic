@@ -195,6 +195,7 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
         }
       : undefined,
     exampleRequests,
+    clientOpts,
   };
 
   return { meta, auth, resources, types, paginationSchemes };

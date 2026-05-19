@@ -5,18 +5,29 @@
 
 import type { HeadersInit } from './types.js';
 
+type HeaderSource = HeadersInit | undefined | null;
+
 /**
  * Merge any number of header sources into a Headers object.
  * Sources are applied left → right; later wins. A value of `null` or
- * `undefined` removes the header (handy when a user wants to suppress a
- * default like User-Agent).
+ * `undefined` removes the header.
  *
+ * Accepts both forms (matches Stainless's signature for migration parity):
  *   buildHeaders({ Accept: 'application/json' }, { 'X-Trace': 'abc' })
- *   buildHeaders({ Accept: 'application/json' }, { Accept: null })  // strips Accept
+ *   buildHeaders([{ Accept: 'application/json' }, { 'X-Trace': 'abc' }])
  */
-export function buildHeaders(
-  ...sources: (HeadersInit | undefined | null)[]
-): Headers {
+export function buildHeaders(...args: (HeaderSource | HeaderSource[])[]): Headers {
+  // Stainless calls `buildHeaders([{...}, options?.headers])` — a single array.
+  // Flatten one level so both call shapes work.
+  const sources: HeaderSource[] = [];
+  for (const arg of args) {
+    if (Array.isArray(arg) && !isHeaderTuple(arg)) {
+      for (const inner of arg as HeaderSource[]) sources.push(inner);
+    } else {
+      sources.push(arg as HeaderSource);
+    }
+  }
+
   const out = new Headers();
   for (const src of sources) {
     if (!src) continue;
@@ -29,6 +40,19 @@ export function buildHeaders(
     });
   }
   return out;
+}
+
+/**
+ * HeadersInit allows `[string, string][]` (an array of tuples). Distinguish
+ * that case from our outer "array of header sources" form.
+ */
+function isHeaderTuple(arr: unknown[]): boolean {
+  return (
+    arr.length > 0 &&
+    Array.isArray(arr[0]) &&
+    (arr[0] as unknown[]).length === 2 &&
+    typeof (arr[0] as unknown[])[0] === 'string'
+  );
 }
 
 function forEachEntry(

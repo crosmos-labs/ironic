@@ -167,7 +167,8 @@ ${methods}
 }
 
 /**
- * Emit a single method on a resource.
+ * Emit a single method on a resource. Stainless style: JSDoc immediately
+ * adjacent to the signature (no blank line in between).
  */
 function emitMethod(method: MethodNode): string {
   const doc = jsdoc(
@@ -181,7 +182,9 @@ function emitMethod(method: MethodNode): string {
   const sig = buildMethodSignature(method);
   const body = buildMethodBody(method);
 
-  return joinBlocks(indent(doc), indent(`${sig} {\n${indent(body)}\n}`));
+  // Glue the doc to the signature directly (no joinBlocks blank line).
+  const docPart = doc ? `${indent(doc)}\n` : '';
+  return `${docPart}${indent(`${sig} {\n${indent(body)}\n}`)}`;
 }
 
 /**
@@ -201,13 +204,23 @@ function buildMethodSignature(method: MethodNode): string {
     params.push(`body: ${bodyType}`);
   }
 
-  // Query params: prefer the named *Params interface if synthesized.
-  // Also accept `null` for callers that want to be explicit about "no query".
+  // Query params. Stainless ergonomics:
+  //   - All optional → `query: T | null | undefined = {}`  (callable without args)
+  //   - Some required → `query: T`                          (required positional)
+  const hasRequiredQuery = method.queryParams.some((p) => p.required);
   if (method.queryParamsTypeName) {
-    params.push(`query?: ${method.queryParamsTypeName} | null`);
+    if (hasRequiredQuery) {
+      params.push(`query: ${method.queryParamsTypeName}`);
+    } else {
+      params.push(`query: ${method.queryParamsTypeName} | null | undefined = {}`);
+    }
   } else if (method.queryParams.length > 0) {
     const queryType = buildQueryParamsType(method.queryParams);
-    params.push(`query?: ${queryType} | null`);
+    if (hasRequiredQuery) {
+      params.push(`query: ${queryType}`);
+    } else {
+      params.push(`query: ${queryType} | null | undefined = {}`);
+    }
   }
 
   // Per-call request options (headers, timeout, signal, maxRetries).
@@ -232,45 +245,57 @@ function buildMethodSignature(method: MethodNode): string {
 function buildMethodBody(method: MethodNode): string {
   const pathExpr = buildPathExpression(method.path, method.pathParams);
   const httpMethod = method.httpMethod;
+  const hasBody = !!method.requestBody;
+  const hasQuery = method.queryParams.length > 0;
 
-  // `{ ...options, body, query }` — explicit fields win over anything the
-  // caller passed via `options`, which is the safe ordering.
-  const parts: string[] = ['...options'];
-  if (method.requestBody) parts.push('body');
-  if (method.queryParams.length > 0) parts.push('query');
-  const optionsStr = `, { ${parts.join(', ')} }`;
+  // Stainless ordering: explicit fields BEFORE the options spread. When there's
+  // no body and no query, pass `options` straight through instead of wrapping.
+  const callTail = (() => {
+    if (!hasBody && !hasQuery) return ', options';
+    const parts: string[] = [];
+    if (hasBody) parts.push('body');
+    if (hasQuery) parts.push('query');
+    parts.push('...options');
+    return `, { ${parts.join(', ')} }`;
+  })();
 
   if (method.streaming) {
-    return `return this._client.stream(${pathExpr}${optionsStr});`;
+    return `return this._client.stream(${pathExpr}${callTail});`;
   }
 
-  // Paginated methods use getAPIList
   if (method.pagination) {
     const pageClass = method.pagination === 'cursor' ? 'CursorPage' : 'OffsetPage';
     const itemType = emitTypeRef(extractPageItemType(method.responseType));
-    return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}${optionsStr});`;
+    return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}${callTail});`;
   }
 
   switch (httpMethod) {
     case 'get':
-      return `return this._client.get(${pathExpr}${optionsStr});`;
+      return `return this._client.get(${pathExpr}${callTail});`;
     case 'post':
-      return `return this._client.post(${pathExpr}${optionsStr});`;
+      return `return this._client.post(${pathExpr}${callTail});`;
     case 'put':
-      return `return this._client.put(${pathExpr}${optionsStr});`;
+      return `return this._client.put(${pathExpr}${callTail});`;
     case 'patch':
-      return `return this._client.patch(${pathExpr}${optionsStr});`;
+      return `return this._client.patch(${pathExpr}${callTail});`;
     case 'delete': {
-      // Stainless convention: delete sends Accept: */* so 204 No Content
-      // doesn't trip the JSON parser. Caller's own headers still win.
-      const deleteParts: string[] = ['...options'];
-      if (method.requestBody) deleteParts.push('body');
-      if (method.queryParams.length > 0) deleteParts.push('query');
-      deleteParts.push(`headers: buildHeaders({ Accept: '*/*' }, options?.headers)`);
-      return `return this._client.delete(${pathExpr}, { ${deleteParts.join(', ')} });`;
+      // Stainless: delete sends `Accept: */*` so 204 No Content doesn't trip
+      // the JSON parser. Body content lives at +4 spaces relative to the
+      // method body so the rendered output reads as natural object literal:
+      //   return this._client.delete(path, {
+      //     ...options,
+      //     headers: buildHeaders([{ Accept: '*/*' }, options?.headers]),
+      //   });
+      const deleteParts: string[] = [];
+      if (hasBody) deleteParts.push('body');
+      if (hasQuery) deleteParts.push('query');
+      deleteParts.push('...options');
+      deleteParts.push(`headers: buildHeaders([{ Accept: '*/*' }, options?.headers])`);
+      const indented = deleteParts.map((p) => `  ${p},`).join('\n');
+      return `return this._client.delete(${pathExpr}, {\n${indented}\n});`;
     }
     default:
-      return `return this._client.post(${pathExpr}${optionsStr});`;
+      return `return this._client.post(${pathExpr}${callTail});`;
   }
 }
 

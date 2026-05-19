@@ -102,7 +102,9 @@ describe('plan (petstore)', () => {
     const { config, spec } = await parse(PETSTORE_CONFIG);
     const ir = plan(config, spec);
 
-    const listResponse = ir.types.find((t) => t.name === 'ListOwnersResponse');
+    // Synthesized name now includes the resource class prefix:
+    // `OwnersListOwnersResponse` (Stainless-style: ResourceClass + Method + Response).
+    const listResponse = ir.types.find((t) => t.name === 'OwnersListOwnersResponse');
     expect(listResponse).toBeDefined();
     expect(listResponse!.type.kind).toBe('object');
     const obj = listResponse!.type as { kind: 'object'; properties: Record<string, { type: { kind: string; items?: { kind: string; name?: string } } }> };
