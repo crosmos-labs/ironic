@@ -1,88 +1,251 @@
 // ─── Config Schema ───────────────────────────────────────────────────────────
-// Zod schema for ironic.yml — the source of truth for config validation.
+// Zod schema modeled on Stainless's stainless.yml (app.stainless.com/config.schema.json).
+// Goal: a stainless.yml file should parse here unchanged — zero-effort migration.
+//
+// Ironic-only extensions (not in Stainless):
+//   - `spec: <path>`             top-level path to the OpenAPI spec file
+//   - `targets.typescript.mcp_server`  MCP server emission config
+//   - `transforms: [...]`        Ironic's spec-transform pipeline (Stainless uses `openapi.transforms`)
+//
+// Everything else mirrors Stainless. Unknown keys are accepted via `.passthrough()`
+// so the user can keep their full stainless.yml in place even when we don't
+// implement every field yet.
 
 import { z } from 'zod';
 
-// ── Sub-schemas ──
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-const MethodSpecSchema = z.object({
-  path: z.string().regex(/^(GET|POST|PUT|PATCH|DELETE)\s+\//, 'Must be "METHOD /path"'),
-  pagination: z.string().optional(),
-  stream_option: z.boolean().optional(),
-  response_unwrap: z.union([z.string(), z.boolean()]).optional(),
-  deprecated: z.boolean().optional(),
-  description_override: z.string().optional(),
-});
+const NonEmptyString = z.string().min(1);
 
-type ResourceSchemaInput = {
+/** Stainless method shorthand: `"get /foo"` OR a full object describing the method. */
+const MethodSpecSchema = z.union([
+  // shorthand: "verb /path"
+  z.string().regex(/^(get|post|put|patch|delete)\s+\//i, 'Must be "verb /path"'),
+  // object form
+  z
+    .object({
+      type: z.enum(['http']).default('http'),
+      endpoint: z.string().regex(/^(get|post|put|patch|delete)\s+\//i),
+      paginated: z.boolean().optional(),
+      streaming: z.union([z.boolean(), z.object({}).passthrough()]).optional(),
+      deprecated: z.boolean().optional(),
+      description: z.string().optional(),
+    })
+    .passthrough(),
+]);
+
+/** Stainless model shorthand: a $ref string OR an object with more detail. */
+const ModelSpecSchema = z.union([
+  z.string(), // typically `#/components/schemas/Name`
+  z.object({ openapi_uri: z.string() }).passthrough(),
+]);
+
+// ── ResourceConfig (recursive) ──────────────────────────────────────────────
+
+type ResourceConfigInput = {
+  models?: Record<string, z.infer<typeof ModelSpecSchema>>;
   methods?: Record<string, z.infer<typeof MethodSpecSchema>>;
-  children?: Record<string, ResourceSchemaInput>;
+  description?: string;
+  subresources?: Record<string, ResourceConfigInput>;
+  deprecated?: boolean;
+  skip?: boolean;
+  [k: string]: unknown;
 };
 
-const ResourceSchema: z.ZodType<ResourceSchemaInput> = z.lazy(() =>
-  z.object({
-    methods: z.record(MethodSpecSchema).optional(),
-    children: z.record(ResourceSchema).optional(),
-  }),
+const ResourceConfigSchema: z.ZodType<ResourceConfigInput> = z.lazy(() =>
+  z
+    .object({
+      models: z.record(ModelSpecSchema).optional(),
+      methods: z.record(MethodSpecSchema).optional(),
+      description: z.string().optional(),
+      subresources: z.record(ResourceConfigSchema).optional(),
+      deprecated: z.boolean().optional(),
+      skip: z.boolean().optional(),
+    })
+    .passthrough(),
 );
 
-const PaginationCursorSchema = z.object({
-  request: z.object({
-    cursor_param: z.string().default('after'),
-    limit_param: z.string().default('limit'),
-  }),
-  response: z.object({
-    items_key: z.string().default('data'),
-    has_more_key: z.string().default('has_more'),
-    cursor_source: z
-      .enum(['last_item_id', 'last_id_field', 'next_cursor_field'])
-      .default('last_item_id'),
-    cursor_field: z.string().default('id'),
-  }),
-});
+// ── Targets ─────────────────────────────────────────────────────────────────
 
-const PaginationOffsetSchema = z.object({
-  request: z.object({
-    page_param: z.string().default('page'),
-    per_page_param: z.string().default('per_page'),
-  }),
-  response: z.object({
-    items_key: z.string().default('data'),
-    total_key: z.string().default('total'),
-  }),
-});
-
-const TypescriptTargetSchema = z.object({
-  package_name: z.string(),
-  output_dir: z.string().default('./generated/typescript'),
-  publish: z
+const PublishNpmSchema = z.union([
+  z.boolean(),
+  z
     .object({
-      registry: z.enum(['npm', 'jsr', 'none']).default('npm'),
+      auth_method: z.enum(['access-token', 'oidc']).optional(),
+      release_environment: z.string().optional(),
     })
-    .optional(),
-  options: z
-    .object({
-      runtime: z.enum(['node', 'browser', 'universal']).default('node'),
-      tree_shaking: z.boolean().default(true),
-    })
-    .optional(),
-  mcp_server: z
-    .object({
-      package_name: z.string(),
-      output_dir: z.string().default('./generated/mcp'),
-      transport: z.enum(['stdio', 'http']).default('stdio'),
-    })
-    .optional(),
-});
+    .passthrough(),
+]);
 
-const MethodOverrideSchema = z.object({
-  path: z.string(),
-  name: z.string(),
-  deprecated: z.boolean().optional(),
-  description_override: z.string().optional(),
-});
+const TypeScriptTargetSchema = z
+  .object({
+    edition: z.string().optional(),
+    package_name: NonEmptyString,
+    production_repo: z.union([z.string(), z.null()]).optional(),
+    publish: z
+      .object({
+        npm: PublishNpmSchema.optional(),
+        jsr: z.union([z.boolean(), z.object({}).passthrough()]).optional(),
+      })
+      .passthrough()
+      .optional(),
+    skip: z.boolean().optional(),
+    readme_title: z.string().optional(),
+    keep_files: z.array(z.string()).optional(),
+    options: z.object({}).passthrough().optional(),
 
-// ── Transforms ──
+    // ── Ironic extensions ─────────────────────────────────────────────────
+    /** Path to write the generated TypeScript SDK. Stainless writes to production_repo. */
+    output_dir: z.string().default('./generated/typescript'),
+    /** Ironic-only: emit a companion MCP server. */
+    mcp_server: z
+      .object({
+        package_name: z.string(),
+        output_dir: z.string().default('./generated/mcp'),
+        transport: z.enum(['stdio', 'http']).default('stdio'),
+      })
+      .optional(),
+  })
+  .passthrough();
+
+const PythonTargetSchema = z
+  .object({
+    edition: z.string().optional(),
+    package_name: NonEmptyString,
+    project_name: z.string().optional(),
+    production_repo: z.union([z.string(), z.null()]).optional(),
+    publish: z.object({}).passthrough().optional(),
+    skip: z.boolean().optional(),
+  })
+  .passthrough();
+
+const TargetsSchema = z
+  .object({
+    typescript: TypeScriptTargetSchema.optional(),
+    python: PythonTargetSchema.optional(),
+    // Other targets (java, kotlin, go, ruby, terraform, cli, php, csharp, openapi, sql)
+    // accepted as passthrough for now — not yet generated.
+  })
+  .passthrough();
+
+// ── client_settings.opts ────────────────────────────────────────────────────
+
+const ClientOptSchema = z
+  .object({
+    type: z.enum(['boolean', 'number', 'string', 'integer']).optional(),
+    description: z.string().optional(),
+    example: z.unknown().optional(),
+    default: z.unknown().optional(),
+    nullable: z.boolean().optional(),
+    read_env: z.string().optional(),
+    auth: z
+      .object({
+        security_scheme: z.string(),
+        role: z.enum(['value', 'username', 'password', 'client_id', 'client_secret']).optional(),
+      })
+      .optional(),
+    server_variable: z.string().optional(),
+    send_in_header: z.string().optional(),
+    send_as_query_param: z.string().optional(),
+    send_as_body_param: z.string().optional(),
+    send_as_path_param: z.string().optional(),
+    required_in_tests: z.boolean().optional(),
+  })
+  .passthrough();
+
+const ClientSettingsSchema = z
+  .object({
+    opts: z.record(ClientOptSchema).optional(),
+    default_client_example_name: z.string().optional(),
+    default_client_name: z.string().optional(),
+    default_env_prefix: z.string().optional(),
+    default_timeout: z.union([z.number(), z.object({}).passthrough()]).optional(),
+    default_retries: z
+      .object({
+        max_retries: z.number().int().min(0).optional(),
+        initial_delay_seconds: z.number().optional(),
+        max_delay_seconds: z.number().optional(),
+      })
+      .optional(),
+    default_headers: z.record(z.unknown()).optional(),
+    response_headers: z.record(z.string()).optional(),
+    idempotency: z.object({ header: z.string() }).optional(),
+    omit_stainless_headers: z.boolean().optional(),
+  })
+  .passthrough();
+
+// ── security & security_schemes ─────────────────────────────────────────────
+
+/** Top-level security: list of requirement objects `[{HTTPBearer: []}]` (OpenAPI shape). */
+const SecuritySchema = z.array(z.record(z.array(z.string())));
+
+/** OpenAPI-shaped security scheme definitions, with optional Stainless extensions. */
+const SecuritySchemeSchema = z
+  .object({
+    type: z.enum(['http', 'apiKey', 'oauth2', 'openIdConnect', 'mutualTLS']),
+    scheme: z.string().optional(),
+    bearerFormat: z.string().optional(),
+    in: z.enum(['header', 'query', 'cookie']).optional(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .passthrough();
+
+// ── readme.example_requests ─────────────────────────────────────────────────
+
+const ExampleRequestSchema = z
+  .object({
+    type: z.enum(['request']).default('request'),
+    endpoint: z.string(),
+    params: z.record(z.unknown()).optional(),
+    response_property: z.string().optional(),
+    assign_to: z.string().optional(),
+  })
+  .passthrough();
+
+const ReadmeSchema = z
+  .object({
+    example_requests: z.record(ExampleRequestSchema).optional(),
+    example_types: z.object({}).passthrough().optional(),
+    include_stainless_attribution: z.boolean().optional(),
+  })
+  .passthrough();
+
+// ── settings ────────────────────────────────────────────────────────────────
+
+const SettingsSchema = z
+  .object({
+    license: z
+      .union([z.enum(['MIT', 'Apache-2.0', 'BSD-3-Clause', 'GPL-3.0', 'ISC']), z.string()])
+      .optional(),
+    disable_mock_tests: z.boolean().optional(),
+    disable_tests: z.boolean().optional(),
+    file_header: z.string().optional(),
+    per_endpoint_security: z.boolean().optional(),
+    positional_params: z.boolean().optional(),
+    unwrap_response_fields: z.array(z.string()).optional(),
+    unwrap_multiproperty_response_fields: z.boolean().optional(),
+    require_websocket_dependencies: z.boolean().optional(),
+    mock_server: z.union([z.boolean(), z.object({}).passthrough()]).optional(),
+  })
+  .passthrough();
+
+// ── pagination (Stainless shape: object or array) ───────────────────────────
+
+const PaginationSchemeSchema = z
+  .object({
+    description: z.string().optional(),
+    type: z.enum(['cursor', 'cursor_id', 'cursor_url', 'fake_page', 'offset', 'page_number']).optional(),
+    request: z.record(z.unknown()).optional(),
+    response: z.record(z.unknown()).optional(),
+    param_location: z.enum(['query', 'body']).optional(),
+    continue_on_empty_items: z.boolean().optional(),
+  })
+  .passthrough();
+
+const PaginationSchema = z.union([PaginationSchemeSchema, z.array(PaginationSchemeSchema)]);
+
+// ── Ironic-only transforms (kept for back-compat with our Tier 5 work) ─────
 
 const TransformRenameSchemaSchema = z.object({
   type: z.literal('rename_schema'),
@@ -98,7 +261,6 @@ const TransformDropEndpointSchema = z.object({
 
 const TransformExtractInlineSchemaSchema = z.object({
   type: z.literal('extract_inline_schema'),
-  /** JSONPath-like locator: e.g. "POST /chat/completions.requestBody" */
   location: z.string(),
   to: z.string(),
 });
@@ -116,86 +278,54 @@ const TransformSchema = z.discriminatedUnion('type', [
 
 export type Transform = z.infer<typeof TransformSchema>;
 
-// ── Main config schema ──
+// ── Main config schema ──────────────────────────────────────────────────────
 
-export const ConfigSchema = z.object({
-  version: z.literal(1),
+export const ConfigSchema = z
+  .object({
+    /** Stainless edition string (e.g. `"2026-02-23"`). Optional for back-compat. */
+    edition: z.string().optional(),
 
-  organization: z
-    .object({
-      name: z.string().optional(),
-      url: z.string().url().optional(),
-      docs_url: z.string().url().optional(),
-      contact_email: z.string().email().optional(),
-    })
-    .optional(),
+    organization: z
+      .object({
+        name: z.string().optional(),
+        docs: z.string().optional(),
+        contact: z.string().optional(),
+        // Back-compat aliases (legacy Ironic shape).
+        url: z.string().url().optional(),
+        docs_url: z.string().url().optional(),
+        contact_email: z.string().email().optional(),
+      })
+      .passthrough()
+      .optional(),
 
-  spec: z.string(),
+    /** Ironic extension: path to the OpenAPI spec, relative to the config file. */
+    spec: z.string().optional(),
 
-  targets: z.object({
-    typescript: TypescriptTargetSchema.optional(),
-  }),
+    targets: TargetsSchema,
 
-  client_settings: z
-    .object({
-      base_url: z.string().optional(),
-      environments: z.record(z.string()).optional(),
-      default_environment: z.string().optional(),
-      timeout_ms: z.number().positive().default(60000),
-      max_retries: z.number().int().min(0).default(2),
-      user_agent_prefix: z.string().optional(),
-    })
-    .optional(),
+    /** Map of named environment → base URL. */
+    environments: z.record(z.string()).optional(),
 
-  auth: z
-    .object({
-      type: z.enum(['bearer', 'api_key', 'basic', 'custom']).default('bearer'),
-      env_var: z.string().optional(),
-      header_name: z.string().optional(),
-      username_env: z.string().optional(),
-      password_env: z.string().optional(),
-    })
-    .optional(),
+    resources: z.record(ResourceConfigSchema).optional(),
 
-  pagination: z
-    .object({
-      cursor: PaginationCursorSchema.optional(),
-      offset: PaginationOffsetSchema.optional(),
-    })
-    .optional(),
+    readme: ReadmeSchema.optional(),
 
-  paths: z
-    .object({
-      /**
-       * Strip this prefix from every OpenAPI path before grouping into resources.
-       *   strip_prefix: /api/v1
-       * "/api/v1/spaces" then groups as "spaces" instead of "api.v1.spaces".
-       * If unset, Ironic auto-detects the longest common prefix shared by every path.
-       * Set to "" to disable both behaviors.
-       */
-      strip_prefix: z.string().optional(),
-    })
-    .optional(),
+    settings: SettingsSchema.optional(),
 
-  resources: z.record(ResourceSchema).optional(),
+    client_settings: ClientSettingsSchema.optional(),
 
-  methods: z.array(MethodOverrideSchema).optional(),
+    security: SecuritySchema.optional(),
 
-  transforms: z.array(TransformSchema).optional(),
+    security_schemes: z.record(SecuritySchemeSchema).optional(),
 
-  types: z
-    .object({
-      rename: z.record(z.string()).optional(),
-    })
-    .optional(),
+    pagination: PaginationSchema.optional(),
 
-  options: z
-    .object({
-      include_examples_in_docs: z.boolean().default(true),
-      emit_readme: z.boolean().default(true),
-      emit_changelog: z.boolean().default(false),
-    })
-    .optional(),
-});
+    /** Stainless's transforms block (different command set from Ironic's). Currently passthrough. */
+    openapi: z.object({}).passthrough().optional(),
+
+    /** Ironic-only spec transforms — see planner/transforms.ts. */
+    transforms: z.array(TransformSchema).optional(),
+  })
+  .passthrough();
 
 export type IronicConfig = z.infer<typeof ConfigSchema>;
