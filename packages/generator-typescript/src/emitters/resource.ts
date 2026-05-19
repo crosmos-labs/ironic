@@ -78,6 +78,13 @@ function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string
     lines.push(`import { path } from '../core/path.js';`);
   }
 
+  // `delete` and other void-returning methods need to set Accept: */* so the
+  // runtime doesn't try to parse an empty 204 body as JSON.
+  const needsBuildHeaders = resource.methods.some((m) => m.httpMethod === 'delete');
+  if (needsBuildHeaders) {
+    lines.push(`import { buildHeaders } from '../core/headers.js';`);
+  }
+
   for (const child of resource.children) {
     lines.push(
       `import { ${child.className} } from './${camelCase(child.name)}/index.js';`,
@@ -253,8 +260,15 @@ function buildMethodBody(method: MethodNode): string {
       return `return this._client.put(${pathExpr}${optionsStr});`;
     case 'patch':
       return `return this._client.patch(${pathExpr}${optionsStr});`;
-    case 'delete':
-      return `return this._client.delete(${pathExpr}${optionsStr});`;
+    case 'delete': {
+      // Stainless convention: delete sends Accept: */* so 204 No Content
+      // doesn't trip the JSON parser. Caller's own headers still win.
+      const deleteParts: string[] = ['...options'];
+      if (method.requestBody) deleteParts.push('body');
+      if (method.queryParams.length > 0) deleteParts.push('query');
+      deleteParts.push(`headers: buildHeaders({ Accept: '*/*' }, options?.headers)`);
+      return `return this._client.delete(${pathExpr}, { ${deleteParts.join(', ')} });`;
+    }
     default:
       return `return this._client.post(${pathExpr}${optionsStr});`;
   }

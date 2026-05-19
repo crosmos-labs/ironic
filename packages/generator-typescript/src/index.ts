@@ -53,10 +53,37 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
     files.set('src/types/index.ts', `export * from './shared.js';\n`);
   }
 
-  // 7. Emit index.ts (barrel export)
+  // 7. Emit src/resources/index.ts barrel — re-exports each resource class
+  //    along with the types it owns. Mirrors Stainless's convention.
+  files.set('src/resources/index.ts', emitResourcesBarrel(ir.resources, ownedByResource));
+
+  // 8. Emit top-level index.ts (barrel)
   files.set('src/index.ts', emitIndexFile(ir, shared.length > 0));
 
   return files;
+}
+
+/**
+ * Emit `src/resources/index.ts`: re-export each resource class and its owned
+ * types so callers can do `import { Spaces, type Space } from 'crosmos/resources'`.
+ */
+function emitResourcesBarrel(
+  resources: ResourceNode[],
+  ownedByResource: Map<string, TypeDef[]>,
+): string {
+  const lines: string[] = [fileHeader(), ''];
+
+  for (const resource of resources) {
+    const owned = ownedByResource.get(resource.name) ?? [];
+    const typeNames = owned.map((t) => `type ${t.name}`).sort();
+    const exports = [resource.className, ...typeNames].join(', ');
+    const filePath = resource.children.length > 0
+      ? `./${resource.name}/index.js`
+      : `./${resource.name}.js`;
+    lines.push(`export { ${exports} } from '${filePath}';`);
+  }
+
+  return lines.join('\n') + '\n';
 }
 
 /**

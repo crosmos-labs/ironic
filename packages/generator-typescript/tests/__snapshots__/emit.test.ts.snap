@@ -45,6 +45,14 @@ export class PetstoreClient extends BaseClient {
 "
 `;
 
+exports[`TypeScript generator (petstore) > snapshot: resources/index.ts (barrel) 1`] = `
+"// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
+
+export { Owners, type ListOwnersResponse, type Owner, type OwnerListOwnersParams } from './owners.js';
+export { Pets, type ListPetsResponse, type Pet, type PetCreateParams, type PetListPetsParams, type PetUpdateParams } from './pets.js';
+"
+`;
+
 exports[`TypeScript generator (petstore) > snapshot: resources/pets.ts 1`] = `
 "// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
 
@@ -52,8 +60,8 @@ import { APIResource } from '../core/api-client.js';
 import type { RequestOptions } from '../core/types.js';
 import { APIPromise } from '../core/api-promise.js';
 import { path } from '../core/path.js';
+import { buildHeaders } from '../core/headers.js';
 import { CursorPage } from '../core/pagination.js';
-import type { Pet, PetCreateParams, PetUpdateParams } from '../types/shared.js';
 
 export class Pets extends APIResource {
 
@@ -72,7 +80,7 @@ export class Pets extends APIResource {
    */
 
   deletePet(petId: string, options?: RequestOptions): APIPromise<void> {
-    return this._client.delete(path\`/pets/\${petId}\`, { ...options });
+    return this._client.delete(path\`/pets/\${petId}\`, { ...options, headers: buildHeaders({ Accept: '*/*' }, options?.headers) });
   }
 
   /**
@@ -102,38 +110,15 @@ export class Pets extends APIResource {
   }
 }
 
-export interface ListPetsResponse {
-  data: Pet[];
-  has_more: boolean;
-}
-
-export interface PetListPetsParams {
-  after?: string;
-  limit?: number;
-}
-
-export declare namespace Pets {
-  export {
-    type ListPetsResponse as ListPetsResponse,
-    type PetListPetsParams as PetListPetsParams,
-  };
-}
-"
-`;
-
-exports[`TypeScript generator (petstore) > snapshot: types/shared.ts 1`] = `
-"// File generated from your OpenAPI spec by Ironic. See https://ironic.dev for details.
-
 /**
- * A pet owner.
+ * Request body for creating a pet.
  */
 
-export interface Owner {
-  email: string;
-  id: string;
+export interface PetCreateParams {
+  age?: number;
   name: string;
-  /** List of pet IDs */
-  pets?: string[];
+  species: 'dog' | 'cat' | 'bird' | 'fish';
+  tags?: string[];
 }
 
 /**
@@ -159,17 +144,6 @@ export interface Pet {
 }
 
 /**
- * Request body for creating a pet.
- */
-
-export interface PetCreateParams {
-  age?: number;
-  name: string;
-  species: 'dog' | 'cat' | 'bird' | 'fish';
-  tags?: string[];
-}
-
-/**
  * Request body for updating a pet.
  */
 
@@ -178,6 +152,26 @@ export interface PetUpdateParams {
   name?: string;
   status?: 'available' | 'pending' | 'sold';
   tags?: string[];
+}
+
+export interface ListPetsResponse {
+  data: Pet[];
+  has_more: boolean;
+}
+
+export interface PetListPetsParams {
+  after?: string;
+  limit?: number;
+}
+
+export declare namespace Pets {
+  export {
+    type ListPetsResponse as ListPetsResponse,
+    type Pet as Pet,
+    type PetCreateParams as PetCreateParams,
+    type PetListPetsParams as PetListPetsParams,
+    type PetUpdateParams as PetUpdateParams,
+  };
 }
 "
 `;

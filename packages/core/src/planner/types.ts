@@ -70,7 +70,96 @@ export function collectTypes(
     walkResource(resource, types, resource.name);
   }
 
+  // 3. Single-resource ownership inference. Stainless attributes types declared
+  //    in `models:` explicitly, but a renamed request body like `SpaceCreateParams`
+  //    (from `CreateSpaceRequest`) isn't in any models block — it's a component
+  //    schema referenced only by one resource. Walk method type-refs: any
+  //    unattributed type referenced by exactly one resource is attributed to it.
+  inferSingleResourceOwnership(resources, types);
+
   return Array.from(types.values());
+}
+
+/**
+ * Attribute each unowned component type to a resource if and only if exactly
+ * one resource's methods (transitively, through any referenced types) reach it.
+ * Multi-resource refs stay shared.
+ *
+ * Stainless's `models:` block declares the surface types; this routine catches
+ * the supporting types referenced only by them — e.g. `EntityMemory` referenced
+ * by `EntityDetail.memories[]`, or `SpaceCreateParams` (renamed request body).
+ */
+function inferSingleResourceOwnership(resources: ResourceNode[], types: Map<string, TypeDef>): void {
+  // typeName → set of resource names that (transitively) reference it
+  const refsByType = new Map<string, Set<string>>();
+
+  const note = (typeName: string, resourceName: string) => {
+    const set = refsByType.get(typeName) ?? new Set<string>();
+    set.add(resourceName);
+    refsByType.set(typeName, set);
+  };
+
+  // Start from each resource's method type-refs and walk into named types,
+  // honoring the existing types-map so we can chase ref → def → its refs.
+  const visit = (ref: TypeRef, resourceName: string, seen: Set<string>) => {
+    for (const name of collectTypeRefNames(ref)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      note(name, resourceName);
+      const def = types.get(name);
+      if (def) visit(def.type, resourceName, seen);
+    }
+  };
+
+  const walk = (resource: ResourceNode) => {
+    for (const method of resource.methods) {
+      const seen = new Set<string>();
+      if (method.requestBody) visit(method.requestBody, resource.name, seen);
+      visit(method.responseType, resource.name, seen);
+      for (const p of [...method.pathParams, ...method.queryParams]) visit(p.type, resource.name, seen);
+    }
+    for (const child of resource.children) walk(child);
+  };
+  for (const r of resources) walk(r);
+
+  for (const [typeName, refs] of refsByType) {
+    if (refs.size !== 1) continue;
+    const def = types.get(typeName);
+    if (!def || def.resourceName) continue;
+    def.resourceName = [...refs][0]!;
+  }
+}
+
+/**
+ * Walk a TypeRef tree and yield every named ref. Mirrors the generator's
+ * collector — duplicated here to avoid a dependency from core → generator.
+ */
+function collectTypeRefNames(ref: TypeRef): Set<string> {
+  const out = new Set<string>();
+  const walk = (r: TypeRef) => {
+    switch (r.kind) {
+      case 'ref':
+        out.add(r.name);
+        return;
+      case 'array':
+        return walk(r.items);
+      case 'nullable':
+        return walk(r.inner);
+      case 'union':
+      case 'intersection':
+        for (const m of r.members) walk(m);
+        return;
+      case 'object':
+        for (const prop of Object.values(r.properties)) walk(prop.type);
+        return;
+      case 'record':
+        walk(r.valueType);
+        if (r.properties) for (const prop of Object.values(r.properties)) walk(prop.type);
+        return;
+    }
+  };
+  walk(ref);
+  return out;
 }
 
 function walkResource(
