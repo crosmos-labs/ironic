@@ -12,7 +12,7 @@ describe('schemaToTypeRef', () => {
   });
 
   it('handles integer', () => {
-    expect(schemaToTypeRef({ type: 'integer' })).toEqual({ kind: 'primitive', type: 'number' });
+    expect(schemaToTypeRef({ type: 'integer' })).toEqual({ kind: 'primitive', type: 'integer' });
   });
 
   it('handles number', () => {

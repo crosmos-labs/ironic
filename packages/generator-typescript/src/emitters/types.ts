@@ -8,7 +8,7 @@ import { collectTypeRefs } from '../snippets/type-refs.js';
 export function emitTypeRef(ref: TypeRef): string {
   switch (ref.kind) {
     case 'primitive':
-      return ref.type;
+      return ref.type === 'integer' ? 'number' : ref.type;
 
     case 'ref':
       return ref.name;

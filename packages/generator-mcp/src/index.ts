@@ -8,7 +8,7 @@ export type FileTree = Map<string, string>;
 /** Simple type ref → string for docs (subset of the full emitter). */
 function typeStr(ref: TypeRef): string {
   switch (ref.kind) {
-    case 'primitive': return ref.type;
+    case 'primitive': return ref.type === 'integer' ? 'number' : ref.type;
     case 'ref': return ref.name;
     case 'enum': return ref.values.map(v => ref.type === 'string' ? `'${v}'` : v).join(' | ');
     case 'array': return `${typeStr(ref.items)}[]`;
@@ -464,6 +464,7 @@ function getExampleValue(param: ParamNode): string {
     case 'primitive':
       if (param.type.type === 'string') return `'example'`;
       if (param.type.type === 'number') return '10';
+      if (param.type.type === 'integer') return '10';
       if (param.type.type === 'boolean') return 'true';
       return `'example'`;
     default:

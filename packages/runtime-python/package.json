@@ -1,0 +1,6 @@
+{
+  "name": "@ironic/runtime-python",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Python runtime files copied into generated SDKs"
+}

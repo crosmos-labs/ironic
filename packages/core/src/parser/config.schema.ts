@@ -41,8 +41,6 @@ const ModelSpecSchema = z.union([
 ]);
 
 // ── ResourceConfig (recursive) ──────────────────────────────────────────────
-// We type subresources permissively (record of unknown) to avoid TypeScript's
-// recursive-type strictness; the planner walks the raw object at runtime.
 
 const ResourceConfigSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
   z
@@ -50,7 +48,7 @@ const ResourceConfigSchema: z.ZodType<Record<string, unknown>> = z.lazy(() =>
       models: z.record(ModelSpecSchema).optional(),
       methods: z.record(MethodSpecSchema).optional(),
       description: z.string().optional(),
-      subresources: z.record(z.unknown()).optional(),
+      subresources: z.record(ResourceConfigSchema).optional(),
       deprecated: z.boolean().optional(),
       skip: z.boolean().optional(),
     })
@@ -108,6 +106,9 @@ const PythonTargetSchema = z
     production_repo: z.union([z.string(), z.null()]).optional(),
     publish: z.object({}).passthrough().optional(),
     skip: z.boolean().optional(),
+    // Ironic extensions
+    output_dir: z.string().default('./generated/python'),
+    module_name: z.string().optional(),
   })
   .passthrough();
 
@@ -269,8 +270,6 @@ const TransformSchema = z.discriminatedUnion('type', [
 ]);
 
 export type Transform = z.infer<typeof TransformSchema>;
-
-// ── Main config schema ──────────────────────────────────────────────────────
 
 export const ConfigSchema = z
   .object({

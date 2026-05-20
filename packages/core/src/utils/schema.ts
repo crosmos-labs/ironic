@@ -147,7 +147,7 @@ export function schemaToTypeRef(
   // primitives
   switch (schema.type) {
     case 'string': return { kind: 'primitive', type: 'string' };
-    case 'integer': return { kind: 'primitive', type: 'number' };
+    case 'integer': return { kind: 'primitive', type: 'integer' };
     case 'number': return { kind: 'primitive', type: 'number' };
     case 'boolean': return { kind: 'primitive', type: 'boolean' };
     case 'null': return { kind: 'primitive', type: 'null' };

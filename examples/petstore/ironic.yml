@@ -6,6 +6,9 @@ organization:
 
 spec: ./openapi.yaml
 
+environments:
+  production: https://api.petstore.io/v1
+
 targets:
   typescript:
     package_name: "@petstore/sdk"
@@ -13,10 +16,9 @@ targets:
     mcp_server:
       package_name: "@petstore/mcp"
       output_dir: ./generated/mcp
-
-environments:
-  production: https://api.petstore.io/v1
-
+  python:
+    package_name: petstore-sdk
+    output_dir: ./generated/python
 client_settings:
   default_timeout: 30000
   default_retries:
