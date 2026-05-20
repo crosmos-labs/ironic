@@ -464,6 +464,7 @@ function getExampleValue(param: ParamNode): string {
     case 'primitive':
       if (param.type.type === 'string') return `'example'`;
       if (param.type.type === 'number') return '10';
+      if (param.type.type === 'integer') return '10';
       if (param.type.type === 'boolean') return 'true';
       return `'example'`;
     default:

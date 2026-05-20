@@ -12,6 +12,8 @@ import { Pets } from './resources/pets.js';
 export interface PetstoreClientOptions extends ClientOptions {
   /** API key. Defaults to the PETSTORE_API_KEY environment variable. */
   apiKey?: string;
+  /** Named environment. */
+  environment?: 'production';
 }
 
 /**
@@ -23,8 +25,14 @@ export class PetstoreClient extends BaseClient {
 
   constructor(options: PetstoreClientOptions = {}) {
     const opts = options as PetstoreClientOptions & { environment?: string };
+    const environments: Record<string, string> = {
+      'production': 'https://api.petstore.io/v1',
+    };
+    const baseURL = opts.environment
+      ? environments[opts.environment] ?? 'https://api.petstore.io/v1'
+      : 'https://api.petstore.io/v1';
     super({
-      baseURL: options.baseURL ?? 'https://api.petstore.io/v1',
+      baseURL: baseURL,
       apiKey: options.apiKey ?? readEnv('PETSTORE_API_KEY') ?? '',
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeout ?? 30000,

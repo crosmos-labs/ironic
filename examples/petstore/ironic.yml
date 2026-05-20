@@ -6,6 +6,9 @@ organization:
 
 spec: ./openapi.yaml
 
+environments:
+  production: https://api.petstore.io/v1
+
 targets:
   typescript:
     package_name: "@petstore/sdk"

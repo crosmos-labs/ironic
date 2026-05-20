@@ -75,7 +75,7 @@ Returns a paginated list of pets.
 **Example**
 
 \`\`\`typescript
-const result = await client.pets.listPets({ limit: 'example', after: 'example' });
+const result = await client.pets.listPets({ limit: 10, after: 'example' });
 return result;
 \`\`\`
 
