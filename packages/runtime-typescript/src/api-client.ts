@@ -46,6 +46,9 @@ function withDefaultHeader(
 export class BaseClient implements PageClient {
   baseURL: string;
   apiKey: string;
+  username: string;
+  password: string;
+  private auth: NonNullable<ClientOptions['auth']>;
   maxRetries: number;
   timeout: number;
   private _fetch: typeof globalThis.fetch;
@@ -57,6 +60,9 @@ export class BaseClient implements PageClient {
   constructor(options: ClientOptions) {
     this.baseURL = (options.baseURL ?? '').replace(/\/+$/, '');
     this.apiKey = options.apiKey ?? '';
+    this.username = options.username ?? '';
+    this.password = options.password ?? '';
+    this.auth = options.auth ?? { type: 'bearer' };
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
     this._fetch = options.fetch ?? globalThis.fetch;
@@ -245,6 +251,9 @@ export class BaseClient implements PageClient {
   private _buildURL(path: string, query?: object | null): string {
     const merged = { ...this.defaultQuery, ...(query as Record<string, unknown> | null | undefined ?? {}) };
     const url = new URL(path.startsWith('/') ? `${this.baseURL}${path}` : path);
+    if (this.auth.type === 'api_key' && this.auth.in === 'query' && this.apiKey) {
+      url.searchParams.set(this.auth.name ?? 'api_key', this.apiKey);
+    }
 
     for (const [key, value] of Object.entries(merged)) {
       if (value === null || value === undefined) continue;
@@ -263,9 +272,20 @@ export class BaseClient implements PageClient {
   ): Headers {
     // Layered merge (lowest → highest precedence). buildHeaders handles
     // case-insensitive dedup and treats null/undefined as "delete this header".
-    const auth = this.apiKey
-      ? { Authorization: `Bearer ${this.apiKey}` }
-      : undefined;
+    const auth: Record<string, string> = {};
+    if (this.auth.type === 'bearer' && this.apiKey) {
+      auth.Authorization = `Bearer ${this.apiKey}`;
+    } else if (this.auth.type === 'basic' && (this.username || this.password)) {
+      const bytes = new TextEncoder().encode(`${this.username}:${this.password}`);
+      auth.Authorization = `Basic ${btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))}`;
+    } else if (this.auth.type === 'api_key' && this.apiKey) {
+      if (this.auth.in === 'cookie') {
+        const cookie = buildHeaders(this.defaultHeaders, requestHeaders).get('cookie');
+        auth.Cookie = [cookie, `${this.auth.name ?? 'api_key'}=${encodeURIComponent(this.apiKey)}`].filter(Boolean).join('; ');
+      } else if (this.auth.in !== 'query') {
+        auth[this.auth.name ?? 'X-API-Key'] = this.apiKey;
+      }
+    }
 
     const headers = buildHeaders(
       this._defaultRuntimeHeaders(),
@@ -273,6 +293,8 @@ export class BaseClient implements PageClient {
       auth,
       requestHeaders,
     );
+    // Preserve existing cookies when adding the authentication cookie.
+    if (auth.Cookie) headers.set('Cookie', auth.Cookie);
 
     // Default content-type if not set
     if (!headers.has('content-type')) {

@@ -4,3 +4,5 @@ dist
 generated/
 *.tsbuildinfo
 .DS_Store
+
+__pycache__/

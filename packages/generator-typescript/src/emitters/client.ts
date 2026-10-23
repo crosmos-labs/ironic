@@ -45,6 +45,11 @@ function isAuthOpt(opt: ClientOpt): boolean {
   return !!opt.auth;
 }
 
+function credentialName(opt: ClientOpt): string {
+  const role = opt.auth?.role;
+  return role === 'username' || role === 'password' ? role : 'apiKey';
+}
+
 function tsTypeFor(opt: ClientOpt): string {
   const base = opt.type === 'integer' ? 'number' : opt.type;
   return opt.nullable ? `${base} | null` : base;
@@ -61,13 +66,13 @@ function buildOptionsType(ir: IR): string {
     else if (isAuthOpt(opt) && opt.readEnv) {
       lines.push(`  /** API key. Defaults to the ${opt.readEnv} environment variable. */`);
     }
-    const fieldName = isAuthOpt(opt) ? 'apiKey' : opt.tsName;
+    const fieldName = isAuthOpt(opt) ? credentialName(opt) : opt.tsName;
     lines.push(`  ${fieldName}?: ${tsTypeFor(opt)};`);
   }
 
   // Fall back to a plain apiKey if there are no opts but auth is configured
   // (auto-inferred bearer from spec.securitySchemes).
-  if (opts.length === 0 && ir.auth.type !== 'none') {
+  if (!opts.some(isAuthOpt) && ir.auth.type !== 'none' && ir.auth.type !== 'basic') {
     lines.push(`  /** API key. Defaults to the ${ir.auth.envVar} environment variable. */`);
     lines.push(`  apiKey?: string;`);
   }
@@ -102,7 +107,7 @@ function buildClientClass(ir: IR): string {
 
   // API key resolution. Prefer the auth opt's readEnv; fall back to the inferred
   // auth env var (used when no opt was declared).
-  const authOpt = opts.find(isAuthOpt);
+  const authOpt = opts.find((opt) => isAuthOpt(opt) && credentialName(opt) === 'apiKey');
   const apiKeyEnv = authOpt?.readEnv ?? ir.auth.envVar;
   const apiKeyExpr =
     ir.auth.type !== 'none' && apiKeyEnv
@@ -125,6 +130,13 @@ ${envMap}
   }
 
   const baseURLLine = envResolution ? 'baseURL: baseURL,' : `baseURL: options.baseURL ?? '${ir.meta.baseURL}',`;
+  const auth = {
+    type: ir.auth.type === 'custom' ? 'none' : ir.auth.type,
+    ...(ir.auth.type === 'api_key' ? { name: ir.auth.name ?? ir.auth.headerName, in: ir.auth.in ?? 'header' } : {}),
+  };
+  const basicOptions = ir.auth.type === 'basic'
+    ? `\n      username: options.username ?? readEnv('${ir.auth.usernameEnv}') ?? '',\n      password: options.password ?? readEnv('${ir.auth.passwordEnv}') ?? '',`
+    : '';
 
   return `/**
  * ${ir.meta.description}
@@ -137,6 +149,7 @@ ${resourceDecls}${optFieldDecls ? '\n' + optFieldDecls : ''}
     super({
       ${baseURLLine}
       apiKey: ${apiKeyExpr},
+      auth: ${JSON.stringify(auth)},${basicOptions}
       maxRetries: options.maxRetries ?? ${ir.meta.maxRetries},
       timeout: options.timeout ?? ${ir.meta.timeoutMs},
       ...options,

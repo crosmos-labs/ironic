@@ -16,6 +16,9 @@ class RequestOptions(TypedDict, total=False):
 
 class ClientOptions(TypedDict, total=False):
     api_key: Optional[str]
+    username: Optional[str]
+    password: Optional[str]
+    auth: Dict[str, str]
     base_url: str
     timeout: float
     max_retries: int

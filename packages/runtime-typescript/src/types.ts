@@ -47,6 +47,14 @@ export interface Logger {
 export interface ClientOptions {
   baseURL?: string;
   apiKey?: string;
+  username?: string;
+  password?: string;
+  /** Set by generated clients from the API's security scheme. */
+  auth?: {
+    type: 'bearer' | 'basic' | 'api_key' | 'none';
+    name?: string;
+    in?: 'header' | 'query' | 'cookie';
+  };
   timeout?: number;
   maxRetries?: number;
   defaultHeaders?: Record<string, string>;

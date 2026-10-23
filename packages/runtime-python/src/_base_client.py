@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import base64
 import os
 import random
 import time
@@ -77,6 +78,9 @@ class _BaseClient:
         *,
         base_url: str = "",
         api_key: str = "",
+        username: str = "",
+        password: str = "",
+        auth: Dict[str, str] | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
         timeout: float = DEFAULT_TIMEOUT,
         default_headers: Dict[str, str] | None = None,
@@ -84,6 +88,9 @@ class _BaseClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+        self.username = username
+        self.password = password
+        self._auth = auth if auth is not None else {"type": "bearer"}
         self.max_retries = max_retries
         self.timeout = timeout
         self._default_headers = default_headers or {}
@@ -91,6 +98,8 @@ class _BaseClient:
 
     def _build_url(self, path: str, query: Dict[str, object] | None = None) -> str:
         merged = _merge_query(self._default_query, query)
+        if self._auth.get("type") == "api_key" and self._auth.get("in") == "query" and self.api_key:
+            merged = {self._auth.get("name", "api_key"): self.api_key, **merged}
         url = f"{self.base_url}{path}" if path.startswith("/") else path
         if merged:
             params = httpx.QueryParams(
@@ -104,8 +113,21 @@ class _BaseClient:
         extra: Dict[str, str] | None = None,
     ) -> Dict[str, str]:
         auth: Dict[str, str | None] = {}
-        if self.api_key:
+        auth_type = self._auth.get("type")
+        if auth_type == "bearer" and self.api_key:
             auth["authorization"] = f"Bearer {self.api_key}"
+        elif auth_type == "basic" and (self.username or self.password):
+            credentials = base64.b64encode(f"{self.username}:{self.password}".encode("utf-8")).decode("ascii")
+            auth["authorization"] = f"Basic {credentials}"
+        elif auth_type == "api_key" and self.api_key:
+            location = self._auth.get("in", "header")
+            if location == "cookie":
+                from urllib.parse import quote
+                cookie = _build_headers(self._default_headers, extra).get("cookie")
+                name = self._auth.get("name", "api_key")
+                auth["cookie"] = "; ".join(filter(None, [cookie, f"{name}={quote(self.api_key, safe='~()*!.' )}"]))
+            elif location == "header":
+                auth[self._auth.get("name", "X-API-Key")] = self.api_key
 
         runtime: Dict[str, str | None] = {
             "accept": "application/json",
@@ -113,7 +135,10 @@ class _BaseClient:
             "content-type": "application/json",
         }
 
-        return _build_headers(runtime, self._default_headers, auth, extra)
+        result = _build_headers(runtime, self._default_headers, auth, extra)
+        if "cookie" in auth:
+            result["cookie"] = auth["cookie"]
+        return result
 
 
 class SyncAPIClient(_BaseClient):

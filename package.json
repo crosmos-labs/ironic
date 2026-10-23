@@ -8,6 +8,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "vitest",
     "test:runtime": "vitest run --config vitest.runtime.config.ts",
+    "test:python": "node --import tsx tests/python/generate-fixtures.mts && python3 -m unittest discover -s tests/python",
     "lint": "eslint packages",
     "format": "prettier --write packages docs",
     "dev:cli": "tsx packages/cli/src/index.ts"
