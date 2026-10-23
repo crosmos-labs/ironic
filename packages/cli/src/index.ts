@@ -10,21 +10,22 @@ import type { IR } from '@ironic/core';
 import { emit as emitTypescript } from '@ironic/generator-typescript';
 import { emit as emitMcp } from '@ironic/generator-mcp';
 import { emit as emitPython } from '@ironic/generator-python';
+import { emit as emitDocs } from '@ironic/generator-docs';
 
 const program = new Command();
 
 program
   .name('ironic')
-  .description('Generate idiomatic TypeScript SDKs and MCP servers from OpenAPI specs')
+  .description('Generate SDKs, MCP servers, and API docs from OpenAPI specs')
   .version('0.1.0');
 
 // ── ironic generate ──
 
 program
   .command('generate')
-  .description('Generate SDK and/or MCP server from your spec')
+  .description('Generate SDKs, an MCP server, and API documentation from your spec')
   .option('-c, --config <path>', 'Path to ironic.yml', './ironic.yml')
-  .option('-t, --target <target>', 'Target to generate (typescript, mcp, or both)')
+  .option('-t, --target <target>', 'Target to generate (typescript, python, mcp, docs, both, or all)')
   .option('--dry-run', 'Preview files without writing')
   .action(async (options) => {
     const startTime = performance.now();
@@ -105,6 +106,24 @@ program
           totalFiles += mcpFiles.size;
           console.log(
             pc.green(`  ✓ ${mcpFiles.size} files → ${pc.underline(outDir)}`),
+          );
+        }
+      }
+
+      if (target === 'docs' || target === 'all') {
+        if (config.targets.docs) {
+          console.log(pc.dim('  Generating API documentation...'));
+          const docsFiles = emitDocs(ir, { title: config.targets.docs.title });
+          const outDir = resolve(config.targets.docs.output_dir);
+          if (!options.dryRun) {
+            writeFileTree(docsFiles, outDir);
+          }
+          totalFiles += docsFiles.size;
+          console.log(pc.green(`  ✓ ${docsFiles.size} files → ${pc.underline(outDir)}`));
+        } else if (target === 'docs') {
+          throw new IronicUserError(
+            'TARGET_NOT_CONFIGURED',
+            'Docs target is not configured. Add `targets.docs: {}` to ironic.yml.',
           );
         }
       }

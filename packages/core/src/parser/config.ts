@@ -90,6 +90,8 @@ targets:
     mcp_server:
       package_name: "@example/mcp"
       output_dir: ./generated/mcp
+  docs:
+    output_dir: ./generated/docs
 
 environments:
   production: https://api.example.com

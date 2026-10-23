@@ -5,6 +5,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 ## [Unreleased]
 
 ### Added
+- Static API documentation target with resource, endpoint, type, and search pages, usable without an SDK target.
 - CI validation that builds and imports generated SDKs, compiles an MCP server, and invokes both MCP tools over stdio.
 - Cursor + offset pagination integration in generated resource methods — `list` methods now return `CursorPage<T>` / `OffsetPage<T>` instead of `Promise<RawShape>`.
 - `--dry-run` flag on `ironic generate`.

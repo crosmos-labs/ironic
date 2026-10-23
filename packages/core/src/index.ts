@@ -120,6 +120,7 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
 
   // Derive meta from config + spec
   const packageName = config.targets.typescript?.package_name ?? config.targets.python?.package_name ?? 'my-sdk';
+  const docsOnly = !!config.targets.docs && !config.targets.typescript && !config.targets.python;
   // Strip scope, strip -sdk or sdk suffix, use spec title or org name as fallback
   let baseName = packageName.replace(/^@([^/]+)\//, (_, scope) => {
     // If package is just "@scope/sdk", use the scope as the name
@@ -130,6 +131,9 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
   if (!baseName) {
     const scopeMatch = packageName.match(/^@([^/]+)\//);
     baseName = scopeMatch?.[1] ?? spec.info.title.replace(/\s+API$/i, '') ?? 'My';
+  }
+  if (docsOnly) {
+    baseName = spec.info.title.replace(/\s+API$/i, '');
   }
   // Environments now live at the top level (Stainless shape). Pick a sensible
   // default for the baseURL: prefer `production`, else first declared env,
@@ -181,7 +185,7 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
     packageName,
     prettyName: pascalCase(baseName),
     version: spec.info.version,
-    description: spec.info.description ?? `${pascalCase(baseName)} SDK`,
+    description: spec.info.description ?? `${pascalCase(baseName)}${docsOnly ? ' API reference' : ' SDK'}`,
     baseURL,
     environments,
     defaultEnvironment,

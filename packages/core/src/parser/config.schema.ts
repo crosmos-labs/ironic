@@ -112,10 +112,18 @@ const PythonTargetSchema = z
   })
   .passthrough();
 
+const DocsTargetSchema = z
+  .object({
+    output_dir: NonEmptyString.default('./generated/docs'),
+    title: z.string().min(1).optional(),
+  })
+  .passthrough();
+
 const TargetsSchema = z
   .object({
     typescript: TypeScriptTargetSchema.optional(),
     python: PythonTargetSchema.optional(),
+    docs: DocsTargetSchema.optional(),
     // Other targets (java, kotlin, go, ruby, terraform, cli, php, csharp, openapi, sql)
     // accepted as passthrough for now — not yet generated.
   })
