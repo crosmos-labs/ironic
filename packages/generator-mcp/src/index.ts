@@ -5,6 +5,11 @@ import type { IR, ResourceNode, MethodNode, ParamNode, TypeRef } from '@ironic/c
 
 export type FileTree = Map<string, string>;
 
+export interface EmitOptions {
+  packageName?: string;
+  transport?: 'stdio' | 'http';
+}
+
 /** Simple type ref → string for docs (subset of the full emitter). */
 function typeStr(ref: TypeRef): string {
   switch (ref.kind) {
@@ -30,13 +35,13 @@ function typeStr(ref: TypeRef): string {
 /**
  * Generate a complete MCP server package from an IR.
  */
-export function emit(ir: IR): FileTree {
+export function emit(ir: IR, options: EmitOptions = {}): FileTree {
   const files: FileTree = new Map();
 
-  files.set('package.json', emitPackageJson(ir));
+  files.set('package.json', emitPackageJson(ir, options));
   files.set('tsconfig.json', emitTsConfig());
-  files.set('README.md', emitReadme(ir));
-  files.set('src/index.ts', emitServerEntry(ir));
+  files.set('README.md', emitReadme(ir, options));
+  files.set('src/index.ts', emitServerEntry(ir, options));
   files.set('src/sandbox.ts', emitSandbox(ir));
   files.set('src/execution-worker.ts', emitExecutionWorker(ir));
   files.set('src/docs.ts', emitDocsLoader());
@@ -54,13 +59,16 @@ export function emit(ir: IR): FileTree {
 
 // ── Package scaffolding ──
 
-function emitPackageJson(ir: IR): string {
-  const mcpName = ir.meta.packageName
-    .replace(/sdk$/, 'mcp')
-    .replace(/@([^/]+)\/(.+)/, (_, scope, name) => {
-      if (name === 'sdk') return `@${scope}/mcp`;
-      return `@${scope}/${name}-mcp`;
-    });
+function mcpPackageName(ir: IR, options: EmitOptions): string {
+  if (options.packageName) return options.packageName;
+  const name = ir.meta.packageName;
+  if (/\/sdk$/.test(name)) return name.replace(/\/sdk$/, '/mcp');
+  if (/-sdk$/.test(name)) return name.replace(/-sdk$/, '-mcp');
+  return `${name}-mcp`;
+}
+
+function emitPackageJson(ir: IR, options: EmitOptions): string {
+  const mcpName = mcpPackageName(ir, options);
 
   return JSON.stringify({
     name: mcpName,
@@ -108,7 +116,7 @@ function emitTsConfig(): string {
   }, null, 2) + '\n';
 }
 
-function emitReadme(ir: IR): string {
+function emitReadme(ir: IR, options: EmitOptions): string {
   const env = ir.auth.type === 'basic'
     ? { [ir.auth.usernameEnv!]: 'your-username', [ir.auth.passwordEnv!]: 'your-password' }
     : { [ir.auth.envVar]: 'your-api-key' };
@@ -116,22 +124,25 @@ function emitReadme(ir: IR): string {
     mcpServers: {
       [ir.meta.prettyName.toLowerCase()]: {
         command: 'npx',
-        args: ['-y', ir.meta.packageName.replace(/sdk$/, 'mcp')],
+        args: ['-y', mcpPackageName(ir, options)],
         ...(ir.auth.type === 'none' ? {} : { env }),
       },
     },
   }, null, 2);
+  const quickStart = options.transport === 'http'
+    ? `Run \`npm start\` and connect your MCP client to \`http://127.0.0.1:3000/mcp\`. Set \`PORT\` and \`HOST\` to change the listener.\n`
+    : `Add to your MCP client config (e.g. Claude Desktop):
+
+\`\`\`json
+${clientConfig}
+\`\`\``;
   return `# ${ir.meta.prettyName} MCP Server
 
 An MCP server for the ${ir.meta.prettyName} API, powered by the [${ir.meta.packageName}](https://www.npmjs.com/package/${ir.meta.packageName}) SDK.
 
 ## Quick Start
 
-Add to your MCP client config (e.g. Claude Desktop):
-
-\`\`\`json
-${clientConfig}
-\`\`\`
+${quickStart}
 
 ## Tools
 
@@ -150,7 +161,40 @@ Search the SDK documentation to discover methods and their signatures.
 
 // ── Server entry ──
 
-function emitServerEntry(ir: IR): string {
+function emitServerEntry(ir: IR, options: EmitOptions): string {
+  if (options.transport === 'http') {
+    return `#!/usr/bin/env node
+import { createServer } from 'node:http';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { registerExecuteCode } from './tools/execute-code.js';
+import { registerSearchDocs } from './tools/search-docs.js';
+
+const httpServer = createServer(async (req, res) => {
+  if (new URL(req.url ?? '/', 'http://localhost').pathname !== '/mcp') {
+    res.writeHead(404).end('Not found');
+    return;
+  }
+  const server = new McpServer({ name: '${ir.meta.prettyName.toLowerCase()}-mcp', version: '${ir.meta.version}' });
+  registerExecuteCode(server);
+  registerSearchDocs(server);
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res);
+  } catch (error) {
+    console.error(error);
+    if (!res.headersSent) res.writeHead(500).end('Internal server error');
+  } finally {
+    await server.close();
+  }
+});
+
+const port = Number(process.env.PORT ?? 3000);
+const host = process.env.HOST ?? '127.0.0.1';
+httpServer.listen(port, host, () => console.error(\`MCP server listening on http://\${host}:\${port}/mcp\`));
+`;
+  }
   return `#!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
