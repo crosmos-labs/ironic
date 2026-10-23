@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @ironic/core && npm run build -w @ironic/runtime-typescript && npm run build -w @ironic/generator-typescript && npm run build -w @ironic/generator-python && npm run build -w @ironic/generator-mcp && npm run build -w @ironic/cli",
+    "build": "npm run build -w @ironic/core && npm run build -w @ironic/runtime-typescript && npm run build -w @ironic/generator-typescript && npm run build -w @ironic/generator-python && npm run build -w @ironic/generator-mcp && npm run build -w @ironic/generator-docs && npm run build -w @ironic/cli",
     "test": "vitest",
     "test:runtime": "vitest run --config vitest.runtime.config.ts",
     "test:python": "node --import tsx tests/python/generate-fixtures.mts && python3 -m unittest discover -s tests/python",

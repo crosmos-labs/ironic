@@ -1,11 +1,13 @@
 # Ironic
 
-Generate idiomatic TypeScript SDKs and MCP servers from OpenAPI specs.
+Generate TypeScript and Python SDKs, MCP servers, and static API documentation from OpenAPI specs.
 
 Ironic is an open-source SDK generator inspired by [Stainless](https://www.stainless.com). It takes an OpenAPI 3.x spec plus a small `ironic.yml` config, and emits:
 
 - A **TypeScript SDK** with a resource tree, retries with backoff, pagination, streaming, and a typed error hierarchy.
+- A **Python SDK** with matching resources, pagination, and authentication support.
 - An **MCP server** with two tools (`execute_code`, `search_docs`) that exposes the SDK to coding agents.
+- A **static API reference** with resource, endpoint, and type pages and local search.
 
 ## Quick start
 
@@ -26,7 +28,7 @@ The generated TypeScript SDK lands in `examples/petstore/generated/typescript`. 
 npx ironic init       # writes a starter ironic.yml
 npx ironic validate   # checks spec + config
 npx ironic plan       # prints the resource tree
-npx ironic generate   # writes SDK + MCP server
+npx ironic generate   # writes all configured targets
 ```
 
 ## What's in the box
@@ -41,7 +43,23 @@ npx ironic generate   # writes SDK + MCP server
 | Bearer / API-key / basic auth | ✅ |
 | Auto-inference of resources from paths | ✅ |
 | Python target | ✅ |
-| Docs site generator | ⏳ (planned) |
+| Docs site generator | ✅ |
+
+To generate only documentation, add `docs` to your config and run:
+
+```yaml
+targets:
+  docs:
+    output_dir: ./generated/docs
+    title: My API Reference # optional; defaults to the API name
+```
+
+```bash
+npx ironic generate --target docs
+# Open generated/docs/index.html directly, or serve generated/docs as static files.
+```
+
+The docs target can be used without a TypeScript or Python target. It writes standalone HTML, CSS, and JavaScript files; no site build or server runtime is needed.
 
 ## Repo layout
 
@@ -52,11 +70,11 @@ packages/
   generator-typescript/   ← TS SDK emitter
   generator-mcp/          ← MCP server emitter
   generator-python/       ← Python SDK emitter
+  generator-docs/         ← static API reference emitter
   runtime-typescript/     ← copied into generated SDKs
   runtime-python/         ← copied into generated SDKs
 examples/
   petstore/               ← test fixture
-docs/                     ← design docs
 ```
 
 ## Development
@@ -68,8 +86,6 @@ npm test              # unit + snapshot
 npm run test:runtime  # exercises the generated petstore SDK
 npm run lint
 ```
-
-See `docs/` for architecture, planner design, testing strategy, and roadmap.
 
 ## License
 
