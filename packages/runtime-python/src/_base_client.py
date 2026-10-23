@@ -310,7 +310,8 @@ class SyncAPIClient(_BaseClient):
     def _stream(self, method: str, path: str, **kwargs: Any) -> Any:
         from ._streaming import Stream
 
-        response = self._request(method, path, headers={"accept": "text/event-stream"}, **kwargs)
+        headers = kwargs.pop("headers", None) or {}
+        response = self._request(method, path, headers={**headers, "accept": "text/event-stream"}, **kwargs)
         return Stream(response)
 
     def _get_page(self, page_cls: type, path: str, **kwargs: Any) -> Any:
@@ -463,7 +464,8 @@ class AsyncAPIClient(_BaseClient):
     async def _stream(self, method: str, path: str, **kwargs: Any) -> Any:
         from ._streaming import AsyncStream
 
-        response = await self._request(method, path, headers={"accept": "text/event-stream"}, **kwargs)
+        headers = kwargs.pop("headers", None) or {}
+        response = await self._request(method, path, headers={**headers, "accept": "text/event-stream"}, **kwargs)
         return AsyncStream(response)
 
     async def _get_page(self, page_cls: type, path: str, **kwargs: Any) -> Any:

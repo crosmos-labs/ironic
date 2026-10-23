@@ -120,7 +120,7 @@ export class CursorPage<Item> extends AbstractPage<Item> {
     const config = options.pagination?.response;
     this.data = (body[config?.itemsKey ?? 'data'] as Item[]) ?? [];
     this.has_more = config?.cursorSource === 'next_cursor_field'
-      ? Boolean(body[config.nextCursorKey ?? 'next_cursor'])
+      ? body[config.nextCursorKey ?? 'next_cursor'] != null && body[config.nextCursorKey ?? 'next_cursor'] !== ''
       : Boolean(body[config?.hasMoreKey ?? 'has_more']);
   }
 

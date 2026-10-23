@@ -10,6 +10,18 @@ sys.path.insert(0, str(Path(__file__).parent / 'generated'))
 
 
 class OpenAPICoverageTests(unittest.TestCase):
+    def test_stream_preserves_operation_headers(self):
+        module = importlib.import_module('wire_fixture')
+        requests = []
+        with module.Acme() as client:
+            client._client.close()
+            client._client = httpx.Client(transport=httpx.MockTransport(
+                lambda request: requests.append(request) or httpx.Response(200, text='')
+            ))
+            client._stream('GET', '/events', headers={'X-Trace': 'trace'})
+        self.assertEqual(requests[0].headers['x-trace'], 'trace')
+        self.assertEqual(requests[0].headers['accept'], 'text/event-stream')
+
     def test_sync_text_request_and_binary_response(self):
         module = importlib.import_module('wire_fixture')
         requests = []
