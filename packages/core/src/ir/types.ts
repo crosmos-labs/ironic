@@ -83,6 +83,11 @@ export interface AuthModel {
   type: 'bearer' | 'api_key' | 'basic' | 'custom' | 'none';
   /** Env var name for the API key */
   envVar: string;
+  /** Active OpenAPI security scheme. */
+  schemeName?: string;
+  /** API key parameter name and placement. */
+  name?: string;
+  in?: 'header' | 'query' | 'cookie';
   /** Header name (for api_key type) */
   headerName?: string;
   /** Username env var (for basic type) */

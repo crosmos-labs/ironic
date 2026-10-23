@@ -59,9 +59,13 @@ function buildClientClass(ir: IR, mode: 'sync' | 'async'): string {
     })
     .join('\n');
 
-  const apiKeyDefault = ir.auth.type !== 'none'
-    ? `api_key or os.environ.get("${ir.auth.envVar}", "")`
-    : `api_key or ""`;
+  const apiKeyDefault = ir.auth.type !== 'none' && ir.auth.type !== 'basic'
+    ? `api_key if api_key is not None else os.environ.get(${JSON.stringify(ir.auth.envVar)}, "")`
+    : `api_key if api_key is not None else ""`;
+  const auth = {
+    type: ir.auth.type === 'custom' ? 'none' : ir.auth.type,
+    ...(ir.auth.type === 'api_key' ? { name: ir.auth.name ?? ir.auth.headerName, in: ir.auth.in ?? 'header' } : {}),
+  };
 
   const baseURLDefault = ir.meta.baseURL
     ? `base_url or "${ir.meta.baseURL}"`
@@ -99,6 +103,10 @@ ${envMap}
   lines.push(`        self,`);
   lines.push(`        *,`);
   lines.push(`        api_key: Optional[str] = None,`);
+  if (ir.auth.type === 'basic') {
+    lines.push(`        username: Optional[str] = None,`);
+    lines.push(`        password: Optional[str] = None,`);
+  }
   lines.push(`        base_url: Optional[str] = None,${envParam}`);
   lines.push(`        timeout: float = ${ir.meta.timeoutMs / 1000},`);
   lines.push(`        max_retries: int = ${ir.meta.maxRetries},`);
@@ -111,6 +119,11 @@ ${envMap}
   lines.push(`        super().__init__(`);
   lines.push(`            base_url=${resolvedBaseURL},`);
   lines.push(`            api_key=${apiKeyDefault},`);
+  lines.push(`            auth=${JSON.stringify(auth)},`);
+  if (ir.auth.type === 'basic') {
+    lines.push(`            username=username if username is not None else os.environ.get(${JSON.stringify(ir.auth.usernameEnv)}, ""),`);
+    lines.push(`            password=password if password is not None else os.environ.get(${JSON.stringify(ir.auth.passwordEnv)}, ""),`);
+  }
   lines.push(`            timeout=timeout,`);
   lines.push(`            max_retries=max_retries,`);
   lines.push(`        )`);

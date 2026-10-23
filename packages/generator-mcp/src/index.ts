@@ -104,6 +104,18 @@ function emitTsConfig(): string {
 }
 
 function emitReadme(ir: IR): string {
+  const env = ir.auth.type === 'basic'
+    ? { [ir.auth.usernameEnv!]: 'your-username', [ir.auth.passwordEnv!]: 'your-password' }
+    : { [ir.auth.envVar]: 'your-api-key' };
+  const clientConfig = JSON.stringify({
+    mcpServers: {
+      [ir.meta.prettyName.toLowerCase()]: {
+        command: 'npx',
+        args: ['-y', ir.meta.packageName.replace(/sdk$/, 'mcp')],
+        ...(ir.auth.type === 'none' ? {} : { env }),
+      },
+    },
+  }, null, 2);
   return `# ${ir.meta.prettyName} MCP Server
 
 An MCP server for the ${ir.meta.prettyName} API, powered by the [${ir.meta.packageName}](https://www.npmjs.com/package/${ir.meta.packageName}) SDK.
@@ -113,15 +125,7 @@ An MCP server for the ${ir.meta.prettyName} API, powered by the [${ir.meta.packa
 Add to your MCP client config (e.g. Claude Desktop):
 
 \`\`\`json
-{
-  "mcpServers": {
-    "${ir.meta.prettyName.toLowerCase()}": {
-      "command": "npx",
-      "args": ["-y", "${ir.meta.packageName.replace(/sdk$/, 'mcp')}"],
-      "env": { "${ir.auth.envVar}": "your-api-key" }
-    }
-  }
-}
+${clientConfig}
 \`\`\`
 
 ## Tools
@@ -170,9 +174,7 @@ let cachedClient: ${ir.meta.prettyName}Client | null = null;
 
 function getClient(): ${ir.meta.prettyName}Client {
   if (!cachedClient) {
-    cachedClient = new ${ir.meta.prettyName}Client({
-      apiKey: process.env['${ir.auth.envVar}'],
-    });
+    cachedClient = new ${ir.meta.prettyName}Client();
   }
   return cachedClient;
 }
@@ -229,7 +231,7 @@ ${examples}
 Notes:
   - The code is wrapped in an async function.
   - Use \\\`return\\\` to send a value back; it will be JSON-serialized.
-  - Network requests run with the API key from the ${ir.auth.envVar} environment variable.\`,
+  - Network requests use the SDK authentication configured through environment variables.\`,
   ),
 };
 

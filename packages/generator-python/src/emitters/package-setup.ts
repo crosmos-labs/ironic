@@ -123,7 +123,9 @@ export function emitReadme(ir: IR, moduleName: string): string {
   const envVar = ir.auth.type !== 'none' ? ir.auth.envVar : 'API_KEY';
   const docs = ir.meta.organization?.docs ? `Docs: <${ir.meta.organization.docs}>\n\n` : '';
 
-  const authSection = ir.auth.type !== 'none'
+  const authSection = ir.auth.type === 'basic'
+    ? `\n## Authentication\n\nSet \`${ir.auth.usernameEnv}\` and \`${ir.auth.passwordEnv}\`, or pass credentials directly:\n\n\`\`\`python\nclient = ${ir.meta.prettyName}(username="your-username", password="your-password")\n\`\`\`\n`
+    : ir.auth.type !== 'none'
     ? `\n## Authentication\n\nSet your API key:\n\n\`\`\`bash\nexport ${envVar}="your-api-key"\n\`\`\`\n\nOr pass it directly:\n\n\`\`\`python\nclient = ${ir.meta.prettyName}(api_key="your-api-key")\n\`\`\`\n`
     : '';
 

@@ -34,7 +34,7 @@ describe('MCP generator (petstore)', () => {
 
     const sandbox = files.get('src/sandbox.ts')!;
     expect(sandbox).toContain("import { PetstoreClient } from '@petstore/sdk'");
-    expect(sandbox).toContain("process.env['PETSTORE_API_KEY']");
+    expect(sandbox).toContain('new PetstoreClient()');
   });
 
   it('server entry uses correct name', async () => {

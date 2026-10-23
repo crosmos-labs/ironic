@@ -171,7 +171,9 @@ export function emitTsConfig(): string {
 }
 
 export function emitReadme(ir: IR): string {
-  const envVarSection = ir.auth.type !== 'none'
+  const envVarSection = ir.auth.type === 'basic'
+    ? `\n## Authentication\n\nSet \`${ir.auth.usernameEnv}\` and \`${ir.auth.passwordEnv}\`, or pass credentials directly:\n\n\`\`\`typescript\nconst client = new ${ir.meta.prettyName}Client({ username: 'your-username', password: 'your-password' });\n\`\`\`\n`
+    : ir.auth.type !== 'none'
     ? `\n## Authentication\n\nSet your API key:\n\n\`\`\`bash\nexport ${ir.auth.envVar}="your-api-key"\n\`\`\`\n\nOr pass it directly:\n\n\`\`\`typescript\nconst client = new ${ir.meta.prettyName}Client({ apiKey: 'your-api-key' });\n\`\`\`\n`
     : '';
 

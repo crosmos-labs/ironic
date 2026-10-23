@@ -34,6 +34,7 @@ export class PetstoreClient extends BaseClient {
     super({
       baseURL: baseURL,
       apiKey: options.apiKey ?? readEnv('PETSTORE_API_KEY') ?? '',
+      auth: {"type":"bearer"},
       maxRetries: options.maxRetries ?? 2,
       timeout: options.timeout ?? 30000,
       ...options,

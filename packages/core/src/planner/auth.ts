@@ -15,15 +15,18 @@ import type { AuthModel } from '../ir/types.js';
 import { upperSnakeCase } from '../utils/naming.js';
 
 export function planAuth(config: IronicConfig, spec: ParsedSpec): AuthModel {
-  const packageName = config.targets.typescript?.package_name ?? 'my-sdk';
-  const baseName = packageName.replace(/^@[^/]+\//, '').replace(/-sdk$/, '');
+  const packageName = config.targets.typescript?.package_name ?? config.targets.python?.package_name ?? 'my-sdk';
+  const baseName = packageName.replace(/^@[^/]+\//, '').replace(/[-_]?sdk$/i, '')
+    || packageName.match(/^@([^/]+)\//)?.[1] || 'my';
   const defaultEnvVar = `${upperSnakeCase(baseName)}_API_KEY`;
 
   // 1. Identify the active security scheme name.
   //    security is `[{SchemeName: []}, ...]`; we use the first key of the first entry.
   let activeSchemeName: string | undefined;
-  if (config.security && config.security.length > 0) {
-    activeSchemeName = Object.keys(config.security[0] ?? {})[0];
+  const security = config.security ?? spec.raw?.security;
+  if (security) {
+    activeSchemeName = Object.keys(security[0] ?? {})[0];
+    if (!activeSchemeName) return { type: 'none', envVar: '' };
   }
 
   // 2. Resolve the scheme definition: config.security_schemes wins, then spec.securitySchemes.
@@ -63,11 +66,12 @@ export function planAuth(config: IronicConfig, spec: ParsedSpec): AuthModel {
   const scheme = schemeDef.scheme as string | undefined;
 
   if (type === 'http' && scheme === 'bearer') {
-    return { type: 'bearer', envVar: valueEnv ?? defaultEnvVar };
+    return { type: 'bearer', schemeName: activeSchemeName, envVar: valueEnv ?? defaultEnvVar };
   }
   if (type === 'http' && scheme === 'basic') {
     return {
       type: 'basic',
+      schemeName: activeSchemeName,
       envVar: valueEnv ?? defaultEnvVar,
       usernameEnv: usernameEnv ?? `${upperSnakeCase(baseName)}_USERNAME`,
       passwordEnv: passwordEnv ?? `${upperSnakeCase(baseName)}_PASSWORD`,
@@ -76,8 +80,11 @@ export function planAuth(config: IronicConfig, spec: ParsedSpec): AuthModel {
   if (type === 'apiKey') {
     return {
       type: 'api_key',
+      schemeName: activeSchemeName,
       envVar: valueEnv ?? defaultEnvVar,
       headerName: schemeDef.name as string | undefined,
+      name: schemeDef.name as string | undefined,
+      in: (schemeDef.in as 'header' | 'query' | 'cookie' | undefined) ?? 'header',
     };
   }
 
