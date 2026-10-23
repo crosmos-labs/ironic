@@ -38,6 +38,7 @@ export function emit(ir: IR): FileTree {
   files.set('README.md', emitReadme(ir));
   files.set('src/index.ts', emitServerEntry(ir));
   files.set('src/sandbox.ts', emitSandbox(ir));
+  files.set('src/execution-worker.ts', emitExecutionWorker(ir));
   files.set('src/docs.ts', emitDocsLoader());
   files.set('src/tools/execute-code.ts', emitExecuteCodeTool(ir));
   files.set('src/tools/search-docs.ts', emitSearchDocsTool(ir));
@@ -79,6 +80,10 @@ function emitPackageJson(ir: IR): string {
       [ir.meta.packageName]: '*',
       '@modelcontextprotocol/sdk': '^1.0.0',
       zod: '^3.23.0',
+      typescript: '^5.6.0',
+    },
+    devDependencies: {
+      '@types/node': '^20.17.0',
     },
   }, null, 2) + '\n';
 }
@@ -132,6 +137,7 @@ ${clientConfig}
 
 ### \`execute_code\`
 Run TypeScript code against the ${ir.meta.prettyName} API. The SDK client is pre-instantiated as \`client\`.
+Execution is limited to 30 seconds. Only connect MCP clients you trust: this tool executes caller-provided code with access to your API credentials.
 
 ### \`search_docs\`
 Search the SDK documentation to discover methods and their signatures.
@@ -166,47 +172,79 @@ await server.connect(transport);
 
 // ── Sandbox ──
 
-function emitSandbox(ir: IR): string {
-  return `import vm from 'node:vm';
-import { ${ir.meta.prettyName}Client } from '${ir.meta.packageName}';
+function emitSandbox(_ir: IR): string {
+  return `import { Worker } from 'node:worker_threads';
 
-let cachedClient: ${ir.meta.prettyName}Client | null = null;
+const MAX_EXECUTION_MS = 30_000;
 
-function getClient(): ${ir.meta.prettyName}Client {
-  if (!cachedClient) {
-    cachedClient = new ${ir.meta.prettyName}Client();
-  }
-  return cachedClient;
+interface WorkerResult {
+  value?: unknown;
+  error?: { name: string; message: string };
 }
 
-export async function runInSandbox(code: string): Promise<unknown> {
+export async function runInSandbox(code: string, timeoutMs = MAX_EXECUTION_MS): Promise<unknown> {
+  const worker = new Worker(new URL('./execution-worker.js', import.meta.url), {
+    workerData: { code },
+  });
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      callback();
+    };
+    const timer = setTimeout(() => finish(() => reject(new Error('Execution timed out'))), timeoutMs);
+    worker.on('message', (message: WorkerResult) => finish(() => {
+      if (message.error) reject(Object.assign(new Error(message.error.message), { name: message.error.name }));
+      else resolve(message.value);
+    }));
+    worker.on('error', (error) => finish(() => reject(error)));
+    worker.on('exit', (code) => finish(() => reject(new Error(\`Execution worker exited with code \${code}\`))));
+  });
+}
+`;
+}
+
+function emitExecutionWorker(ir: IR): string {
+  return `import vm from 'node:vm';
+import { parentPort, workerData } from 'node:worker_threads';
+import ts from 'typescript';
+import { ${ir.meta.prettyName}Client } from '${ir.meta.packageName}';
+
+async function execute(code: string): Promise<unknown> {
+  const wrapped = \`(async () => {\\n\${code}\\n})()\`;
+  const javascript = ts.transpileModule(wrapped, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
   const context = vm.createContext({
-    client: getClient(),
+    client: new ${ir.meta.prettyName}Client(),
     console: {
-      log: (...args: unknown[]) => console.error('[sandbox]', ...args),
-      error: (...args: unknown[]) => console.error('[sandbox]', ...args),
+      log: (...args: unknown[]) => console.error('[execute_code]', ...args),
+      error: (...args: unknown[]) => console.error('[execute_code]', ...args),
     },
-    fetch: globalThis.fetch,
     URL,
     URLSearchParams,
     setTimeout,
     clearTimeout,
-    Promise,
-    JSON,
-    Math,
-    Date,
-    __result: undefined as unknown,
   });
+  const script = new vm.Script(javascript, { filename: '<mcp-execute-code>' });
+  return await script.runInContext(context, { timeout: 30_000 });
+}
 
-  const wrapped = \`(async () => {\\n\${code}\\n})().then(v => { __result = v; })\`;
-
-  const script = new vm.Script(wrapped, { filename: '<mcp-execute-code>' });
-  await script.runInContext(context, { timeout: 30_000 });
-
-  // Wait one microtask for promise resolution
-  await new Promise<void>((r) => setImmediate(r));
-
-  return context.__result;
+const keepAlive = setInterval(() => {}, 1000);
+try {
+  const value = await execute((workerData as { code: string }).code);
+  parentPort?.postMessage({ value });
+} catch (error) {
+  parentPort?.postMessage({ error: {
+    name: error instanceof Error ? error.name : 'Error',
+    message: error instanceof Error ? error.message : String(error),
+  } });
+} finally {
+  clearInterval(keepAlive);
 }
 `;
 }
@@ -246,7 +284,7 @@ export function registerExecuteCode(server: McpServer) {
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify(result, null, 2),
+            text: JSON.stringify(result ?? null, null, 2),
           }],
         };
       } catch (err) {
