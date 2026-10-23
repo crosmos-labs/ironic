@@ -434,7 +434,7 @@ function detectPagination(
         const cursorParam = (req.cursor_param as string) ?? 'after';
         if (queryNames.has(cursorParam)) return 'cursor';
       } else if (s.type === 'offset' || s.type === 'page_number') {
-        const pageParam = (req.page_param as string) ?? (req.offset_param as string) ?? 'page';
+        const pageParam = (req.page_param as string) ?? (req.offset_param as string) ?? (s.type === 'offset' ? 'offset' : 'page');
         if (queryNames.has(pageParam)) return 'offset';
       }
     }

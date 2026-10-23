@@ -265,8 +265,16 @@ function buildMethodBody(method: MethodNode): string {
 
   if (method.pagination) {
     const pageClass = method.pagination === 'cursor' ? 'CursorPage' : 'OffsetPage';
-    const itemType = emitTypeRef(extractPageItemType(method.responseType));
-    return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}${callTail});`;
+    const itemType = emitTypeRef(method.paginationItemType ?? extractPageItemType(method.responseType));
+    const scheme = method.paginationConfig;
+    const pagination = JSON.stringify({
+      type: scheme?.type ?? method.pagination,
+      ...(scheme?.mode ? { mode: scheme.mode } : {}),
+      request: scheme?.request ?? {},
+      response: scheme?.response ?? { itemsKey: 'data' },
+    });
+    const parts = [hasBody ? 'body' : '', hasQuery ? 'query' : '', '...options', `pagination: ${pagination}`].filter(Boolean);
+    return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}, { ${parts.join(', ')} });`;
   }
 
   switch (httpMethod) {
@@ -340,7 +348,7 @@ function buildReturnType(method: MethodNode): string {
 
   // Paginated methods return a Page<ItemType>
   if (method.pagination) {
-    const itemType = extractPageItemType(method.responseType);
+    const itemType = method.paginationItemType ?? extractPageItemType(method.responseType);
     const pageClass = method.pagination === 'cursor' ? 'CursorPage' : 'OffsetPage';
     return `${pageClass}<${emitTypeRef(itemType)}>`;
   }

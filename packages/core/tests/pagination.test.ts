@@ -42,6 +42,27 @@ function listOp(queryParams: string[], responseProps: Record<string, unknown>) {
 }
 
 describe('pagination heuristics (Tier 4)', () => {
+  it('attaches the matching configured scheme to each operation', () => {
+    const config = makeConfig({ pagination: [
+      { type: 'cursor', request: { cursor_param: 'next' }, response: {
+        items_key: 'entries', cursor_source: 'next_cursor_field', next_cursor_field: 'following',
+      } },
+      { type: 'page_number', request: { page_param: 'page_number', per_page_param: 'size' },
+        response: { items_key: 'entries', total_key: 'count' } },
+    ] });
+    const spec = makeSpec({
+      '/items': listOp(['next'], { entries: { type: 'array', items: { type: 'object' } }, following: { type: 'string' } }),
+      '/pages': listOp(['page_number', 'size'], { entries: { type: 'array', items: { type: 'object' } }, count: { type: 'integer' } }),
+    });
+    const ir = plan(config, spec);
+    const methods = ir.resources.flatMap((resource) => resource.methods);
+    expect(methods.find((method) => method.path === '/items')?.paginationConfig?.response).toMatchObject({
+      itemsKey: 'entries', nextCursorKey: 'following',
+    });
+    expect(methods.find((method) => method.path === '/pages')?.paginationConfig).toMatchObject({
+      mode: 'page_number', request: { pageParam: 'page_number', perPageParam: 'size' },
+    });
+  });
   describe('4.1 offset detection', () => {
     it('detects offset pagination via limit+offset params + count in response', () => {
       const spec = makeSpec({
@@ -53,6 +74,7 @@ describe('pagination heuristics (Tier 4)', () => {
       const ir = plan(makeConfig(), spec);
       const method = ir.resources[0]?.methods[0];
       expect(method?.pagination).toBe('offset');
+      expect(method?.paginationConfig?.mode).toBe('offset');
     });
 
     it('detects offset pagination when response has "total" instead of "count"', () => {

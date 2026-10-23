@@ -1,7 +1,7 @@
 // ─── @ironic/core ────────────────────────────────────────────────────────────
 // Public API: parse(), plan(), and all the types you need.
 
-import type { IR } from './ir/types.js';
+import type { IR, MethodNode, PaginationScheme, ResourceNode, TypeDef, TypeRef } from './ir/types.js';
 import type { IronicConfig } from './parser/config.schema.js';
 import type { ParsedSpec } from './parser/openapi.js';
 import { parseConfig, defaultConfig } from './parser/config.js';
@@ -114,7 +114,9 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
   const resources = planResources(config, spec);
   const auth = planAuth(config, spec);
   const paginationSchemes = planPagination(config);
+  assignPaginationSchemes(resources, paginationSchemes);
   const types = collectTypes(resources, spec, config);
+  assignPaginationItemTypes(resources, types);
 
   // Derive meta from config + spec
   const packageName = config.targets.typescript?.package_name ?? config.targets.python?.package_name ?? 'my-sdk';
@@ -199,6 +201,56 @@ export function plan(config: IronicConfig, spec: ParsedSpec): IR {
   };
 
   return { meta, auth, resources, types, paginationSchemes };
+}
+
+function assignPaginationSchemes(resources: ResourceNode[], schemes: PaginationScheme[]): void {
+  const visit = (resource: ResourceNode): void => {
+    for (const method of resource.methods) {
+      if (!method.pagination) continue;
+      const names = new Set(method.queryParams.map((param) => param.name));
+      const match = schemes.find((scheme) => scheme.type === method.pagination &&
+        names.has(scheme.type === 'cursor' ? scheme.request.cursorParam ?? 'after' : scheme.request.pageParam ?? 'page'));
+      method.paginationConfig = match ?? defaultPaginationScheme(method);
+    }
+    for (const child of resource.children) visit(child);
+  };
+  for (const resource of resources) visit(resource);
+}
+
+function defaultPaginationScheme(method: MethodNode): PaginationScheme {
+  if (method.pagination === 'cursor') {
+    const props = method.responseType.kind === 'object' ? method.responseType.properties : {};
+    return { name: 'cursor', type: 'cursor', request: { cursorParam: 'after' },
+      response: { itemsKey: 'data', hasMoreKey: 'has_more', cursorField: 'id',
+        cursorSource: 'next_cursor' in props ? 'next_cursor_field' : 'last_item_id',
+        nextCursorKey: 'next_cursor' } };
+  }
+  const props = method.responseType.kind === 'object' ? method.responseType.properties : {};
+  const names = new Set(method.queryParams.map((param) => param.name));
+  const mode = names.has('offset') ? 'offset' : 'page_number';
+  return { name: 'offset', type: 'offset', mode,
+    request: { pageParam: mode === 'offset' ? 'offset' : 'page', perPageParam: mode === 'offset' ? 'limit' : 'per_page' },
+    response: { itemsKey: 'data', totalKey: 'count' in props ? 'count' : 'total' } };
+}
+
+function assignPaginationItemTypes(resources: ResourceNode[], types: TypeDef[]): void {
+  const named = new Map(types.map((type) => [type.name, type.type]));
+  const unwrap = (ref: TypeRef, seen = new Set<string>()): TypeRef => {
+    if (ref.kind !== 'ref' || seen.has(ref.name)) return ref;
+    seen.add(ref.name);
+    return named.has(ref.name) ? unwrap(named.get(ref.name)!, seen) : ref;
+  };
+  const visit = (resource: ResourceNode): void => {
+    for (const method of resource.methods) {
+      if (!method.pagination) continue;
+      const response = unwrap(method.responseType);
+      const itemsKey = method.paginationConfig?.response.itemsKey ?? 'data';
+      const items = response.kind === 'object' ? unwrap(response.properties[itemsKey]?.type ?? response) : response;
+      if (items.kind === 'array') method.paginationItemType = items.items;
+    }
+    for (const child of resource.children) visit(child);
+  };
+  for (const resource of resources) visit(resource);
 }
 
 /**

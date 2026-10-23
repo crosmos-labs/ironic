@@ -2,6 +2,8 @@
 // Shared type definitions used across the runtime.
 // These are copied verbatim into every generated SDK.
 
+import type { PaginationConfig } from './pagination.js';
+
 /** A value that can be used as a header. */
 export type HeaderValue = string | null | undefined;
 
@@ -31,6 +33,8 @@ export interface RequestOptions {
   timeout?: number;
   maxRetries?: number;
   signal?: AbortSignal;
+  /** Generated pagination metadata; not sent over the wire. */
+  pagination?: PaginationConfig;
   idempotencyKey?: string;
 }
 

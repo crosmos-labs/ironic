@@ -132,6 +132,10 @@ export interface MethodNode {
   responseType: TypeRef;
   /** Pagination scheme name (if paginated) */
   pagination?: string;
+  /** The scheme selected for this operation, including configured wire names. */
+  paginationConfig?: PaginationScheme;
+  /** Item type inside the response envelope. */
+  paginationItemType?: TypeRef;
   /** Whether this method supports streaming */
   streaming: boolean;
   /** Whether the streaming is toggled by a body param (e.g. stream: true) */
@@ -244,6 +248,7 @@ export interface NullableTypeRef {
 export interface PaginationScheme {
   name: string;
   type: 'cursor' | 'offset';
+  mode?: 'offset' | 'page_number';
   request: {
     cursorParam?: string;
     limitParam?: string;
@@ -255,6 +260,7 @@ export interface PaginationScheme {
     hasMoreKey?: string;
     cursorSource?: 'last_item_id' | 'last_id_field' | 'next_cursor_field';
     cursorField?: string;
+    nextCursorKey?: string;
     totalKey?: string;
   };
 }

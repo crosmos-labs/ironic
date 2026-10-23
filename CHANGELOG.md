@@ -12,6 +12,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 - GitHub Actions CI (build + lint + unit/snapshot tests + runtime tests on Node 20 and 22).
 
 ### Fixed
+- Generated pagination now follows configured cursor, item, total, and page parameter names in TypeScript and Python, including numeric offsets.
 - Generated TypeScript and Python clients now send basic credentials and API keys in the configured header, query parameter, or cookie; MCP servers inherit SDK credential resolution.
 - `BaseClient.getAPIList` now preserves the concrete page subtype (`CursorPage<Pet>` instead of `AbstractPage<Pet>`), so paginated SDK methods type-check.
 - Emitter indentation: closing brace of resource methods is now aligned with the method signature.
