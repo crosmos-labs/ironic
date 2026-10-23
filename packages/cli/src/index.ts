@@ -92,7 +92,10 @@ program
       if (target === 'mcp' || target === 'both' || target === 'all') {
         if (config.targets.typescript?.mcp_server) {
           console.log(pc.dim('  Generating MCP server...'));
-          const mcpFiles = emitMcp(ir);
+          const mcpFiles = emitMcp(ir, {
+            packageName: config.targets.typescript.mcp_server.package_name,
+            transport: config.targets.typescript.mcp_server.transport,
+          });
           const outDir = resolve(
             config.targets.typescript.mcp_server.output_dir ?? './generated/mcp',
           );
