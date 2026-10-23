@@ -116,7 +116,7 @@ function inferSingleResourceOwnership(resources: ResourceNode[], types: Map<stri
       const seen = new Set<string>();
       if (method.requestBody) visit(method.requestBody, resource.name, seen);
       visit(method.responseType, resource.name, seen);
-      for (const p of [...method.pathParams, ...method.queryParams]) visit(p.type, resource.name, seen);
+      for (const p of [...method.pathParams, ...method.queryParams, ...(method.headerParams ?? []), ...(method.cookieParams ?? [])]) visit(p.type, resource.name, seen);
     }
     for (const child of resource.children) walk(child);
   };

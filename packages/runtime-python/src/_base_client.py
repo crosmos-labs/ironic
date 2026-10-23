@@ -5,6 +5,7 @@ import base64
 import os
 import random
 import time
+from urllib.parse import quote
 from typing import Any, Dict, Generic, Mapping, Optional, Type, TypeVar, Union
 
 import httpx
@@ -30,6 +31,12 @@ def _merge_query(
     if not extra:
         return base
     return {**base, **extra}
+
+
+def _wire_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def _build_headers(
@@ -96,21 +103,39 @@ class _BaseClient:
         self._default_headers = default_headers or {}
         self._default_query = default_query or {}
 
-    def _build_url(self, path: str, query: Dict[str, object] | None = None) -> str:
+    def _build_url(self, path: str, query: Dict[str, object] | None = None, query_serialization: Dict[str, str] | None = None) -> str:
         merged = _merge_query(self._default_query, query)
         if self._auth.get("type") == "api_key" and self._auth.get("in") == "query" and self.api_key:
             merged = {self._auth.get("name", "api_key"): self.api_key, **merged}
         url = f"{self.base_url}{path}" if path.startswith("/") else path
         if merged:
-            params = httpx.QueryParams(
-                {k: v for k, v in merged.items() if v is not None}
-            )
+            pairs: list[tuple[str, str]] = []
+            for key, value in merged.items():
+                if value is None:
+                    continue
+                style = (query_serialization or {}).get(key)
+                if style == "deepObject" and isinstance(value, dict):
+                    pairs.extend((f"{key}[{child}]", _wire_scalar(item)) for child, item in value.items() if item is not None)
+                elif style == "formObject" and isinstance(value, dict):
+                    pairs.extend((child, _wire_scalar(item)) for child, item in value.items() if item is not None)
+                elif style == "formObjectComma" and isinstance(value, dict):
+                    pairs.append((key, ",".join(part for child, item in value.items() if item is not None for part in (child, _wire_scalar(item)))))
+                elif isinstance(value, (list, tuple)):
+                    if style in ("comma", "space", "pipe"):
+                        separator = {"comma": ",", "space": " ", "pipe": "|"}[style]
+                        pairs.append((key, separator.join(map(_wire_scalar, value))))
+                    else:
+                        pairs.extend((key, _wire_scalar(item)) for item in value)
+                else:
+                    pairs.append((key, _wire_scalar(value)))
+            params = httpx.QueryParams(pairs)
             url = f"{url}?{params}" if str(params) else url
         return url
 
     def _build_request_headers(
         self,
         extra: Dict[str, str] | None = None,
+        cookies: Dict[str, object] | None = None,
     ) -> Dict[str, str]:
         auth: Dict[str, str | None] = {}
         auth_type = self._auth.get("type")
@@ -122,7 +147,6 @@ class _BaseClient:
         elif auth_type == "api_key" and self.api_key:
             location = self._auth.get("in", "header")
             if location == "cookie":
-                from urllib.parse import quote
                 cookie = _build_headers(self._default_headers, extra).get("cookie")
                 name = self._auth.get("name", "api_key")
                 auth["cookie"] = "; ".join(filter(None, [cookie, f"{name}={quote(self.api_key, safe='~()*!.' )}"]))
@@ -138,6 +162,10 @@ class _BaseClient:
         result = _build_headers(runtime, self._default_headers, auth, extra)
         if "cookie" in auth:
             result["cookie"] = auth["cookie"]
+        if cookies:
+            encoded = "; ".join(f"{key}={quote(_wire_scalar(value), safe='~()*!.')}" for key, value in cookies.items() if value is not None)
+            if encoded:
+                result["cookie"] = "; ".join(filter(None, [result.get("cookie"), encoded]))
         return result
 
 
@@ -168,14 +196,16 @@ class SyncAPIClient(_BaseClient):
         *,
         body: object | None = None,
         query: Dict[str, object] | None = None,
+        query_serialization: Dict[str, str] | None = None,
         headers: Dict[str, str] | None = None,
+        cookies: Dict[str, object] | None = None,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> httpx.Response:
         from ._uploads import has_uploadable, build_multipart_files
 
-        url = self._build_url(path, query)
-        req_headers = self._build_request_headers(headers)
+        url = self._build_url(path, query, query_serialization)
+        req_headers = self._build_request_headers(headers, cookies)
         content: bytes | None = None
         files = None
         data = None
@@ -184,6 +214,12 @@ class SyncAPIClient(_BaseClient):
             if isinstance(body, dict) and has_uploadable(body):
                 files, data = build_multipart_files(body)
                 req_headers.pop("content-type", None)
+            elif req_headers.get("content-type") == "text/plain":
+                content = str(body).encode("utf-8")
+            elif req_headers.get("content-type") == "application/octet-stream":
+                if not isinstance(body, bytes):
+                    raise TypeError("application/octet-stream bodies must be bytes")
+                content = body
             else:
                 import json as _json
                 content = _json.dumps(body).encode("utf-8")
@@ -311,14 +347,16 @@ class AsyncAPIClient(_BaseClient):
         *,
         body: object | None = None,
         query: Dict[str, object] | None = None,
+        query_serialization: Dict[str, str] | None = None,
         headers: Dict[str, str] | None = None,
+        cookies: Dict[str, object] | None = None,
         timeout: float | None = None,
         max_retries: int | None = None,
     ) -> httpx.Response:
         from ._uploads import has_uploadable, build_multipart_files
 
-        url = self._build_url(path, query)
-        req_headers = self._build_request_headers(headers)
+        url = self._build_url(path, query, query_serialization)
+        req_headers = self._build_request_headers(headers, cookies)
         content: bytes | None = None
         files = None
         data = None
@@ -327,6 +365,12 @@ class AsyncAPIClient(_BaseClient):
             if isinstance(body, dict) and has_uploadable(body):
                 files, data = build_multipart_files(body)
                 req_headers.pop("content-type", None)
+            elif req_headers.get("content-type") == "text/plain":
+                content = str(body).encode("utf-8")
+            elif req_headers.get("content-type") == "application/octet-stream":
+                if not isinstance(body, bytes):
+                    raise TypeError("application/octet-stream bodies must be bytes")
+                content = body
             else:
                 import json as _json
                 content = _json.dumps(body).encode("utf-8")

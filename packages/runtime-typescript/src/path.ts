@@ -9,10 +9,10 @@
  *
  * Each interpolated value is encoded with `encodeURIComponent`.
  */
-export function path(strings: TemplateStringsArray, ...values: string[]): string {
+export function path(strings: TemplateStringsArray, ...values: (string | number | boolean)[]): string {
   let out = strings[0]!;
   for (let i = 0; i < values.length; i++) {
-    out += encodeURIComponent(values[i]!) + strings[i + 1]!;
+    out += encodeURIComponent(String(values[i]!)) + strings[i + 1]!;
   }
   return out;
 }

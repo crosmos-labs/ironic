@@ -101,12 +101,17 @@ export class BaseClient implements PageClient {
     return new APIPromise<T>(
       (async () => {
         const response = await this._request({ ...options, method, path });
-        // 204 / empty body → return undefined as T (e.g. for DELETE).
-        if (response.status === 204 || response.headers.get('content-length') === '0') {
+        // 204 has no representation; text and binary may validly be empty.
+        if (response.status === 204) {
           return { data: undefined as T, response };
         }
-        const text = await response.text();
-        const data = (text ? JSON.parse(text) : undefined) as T;
+        let data: T;
+        if (options?.responseFormat === 'binary') data = new Uint8Array(await response.arrayBuffer()) as T;
+        else if (options?.responseFormat === 'text') data = await response.text() as T;
+        else {
+          const body = await response.text();
+          data = (body ? JSON.parse(body) : undefined) as T;
+        }
         return { data, response };
       })(),
     );
@@ -151,8 +156,14 @@ export class BaseClient implements PageClient {
   // ── Core request method ──────────────────────────────────────────────────
 
   private async _request(options: RequestOptions): Promise<Response> {
-    const url = this._buildURL(options.path ?? '', options.query);
+    const url = this._buildURL(options.path ?? '', options.query, options.querySerialization);
     const headers = this._buildHeaders(options.headers);
+    if (options.cookies) {
+      const values = Object.entries(options.cookies)
+        .filter(([, value]) => value !== null && value !== undefined)
+        .map(([name, value]) => `${name}=${encodeURIComponent(String(value))}`);
+      if (values.length) headers.set('Cookie', [headers.get('Cookie'), ...values].filter(Boolean).join('; '));
+    }
     const body = this._buildBody(options.body, headers);
 
     // Merge precedence (lowest → highest):
@@ -248,7 +259,7 @@ export class BaseClient implements PageClient {
     return base * jitter;
   }
 
-  private _buildURL(path: string, query?: object | null): string {
+  private _buildURL(path: string, query?: object | null, serialization?: RequestOptions['querySerialization']): string {
     const merged = { ...this.defaultQuery, ...(query as Record<string, unknown> | null | undefined ?? {}) };
     const url = new URL(path.startsWith('/') ? `${this.baseURL}${path}` : path);
     if (this.auth.type === 'api_key' && this.auth.in === 'query' && this.apiKey) {
@@ -257,8 +268,25 @@ export class BaseClient implements PageClient {
 
     for (const [key, value] of Object.entries(merged)) {
       if (value === null || value === undefined) continue;
+      if (serialization?.[key] === 'deepObject' && typeof value === 'object' && !Array.isArray(value)) {
+        for (const [child, item] of Object.entries(value as Record<string, unknown>)) {
+          if (item !== null && item !== undefined) url.searchParams.set(`${key}[${child}]`, String(item));
+        }
+        continue;
+      }
+      if ((serialization?.[key] === 'formObject' || serialization?.[key] === 'formObjectComma') && typeof value === 'object' && !Array.isArray(value)) {
+        const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== null && item !== undefined);
+        if (serialization[key] === 'formObject') {
+          for (const [child, item] of entries) url.searchParams.set(child, String(item));
+        } else {
+          url.searchParams.set(key, entries.flatMap(([child, item]) => [child, String(item)]).join(','));
+        }
+        continue;
+      }
       if (Array.isArray(value)) {
-        for (const v of value) url.searchParams.append(key, v);
+        const separator = serialization?.[key] === 'comma' ? ',' : serialization?.[key] === 'space' ? ' ' : serialization?.[key] === 'pipe' ? '|' : undefined;
+        if (separator !== undefined) url.searchParams.set(key, value.join(separator));
+        else for (const v of value) url.searchParams.append(key, String(v));
       } else {
         url.searchParams.set(key, String(value));
       }
@@ -317,6 +345,13 @@ export class BaseClient implements PageClient {
 
   private _buildBody(body: unknown, headers: Headers): BodyInit | null | undefined {
     if (body === null || body === undefined) return undefined;
+
+    const mediaType = headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    if (mediaType === 'text/plain') return String(body);
+    if (mediaType === 'application/octet-stream') {
+      if (body instanceof Uint8Array) return new Uint8Array(body) as BodyInit;
+      throw new TypeError('application/octet-stream bodies must be Uint8Array');
+    }
 
     // Check if body contains uploadable content
     if (typeof body === 'object' && body !== null && this._hasUploadable(body)) {
