@@ -364,6 +364,7 @@ function loadDocs(): DocChunk[] {
     for (const section of sections) {
       const [title, ...rest] = section.split('\\n');
       const body = rest.join('\\n').trim();
+      if (!body) continue;
       docs.push({
         title: title!.trim(),
         body,

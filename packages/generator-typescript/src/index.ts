@@ -46,7 +46,8 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
 
   // 5. Emit resource files with their owned types inlined.
   for (const resource of ir.resources) {
-    emitResourceTree(files, resource, 'src/resources', ownedByResource, typeOwners, sharedTypeNames);
+    emitResourceTree(files, resource, 'src/resources', ownedByResource, typeOwners, sharedTypeNames, 1,
+      new Map(ir.resources.map((entry) => [entry.name, entry.children.length > 0 ? `${entry.name}/index.js` : `${entry.name}.js`])));
   }
 
   // 6. Emit shared types file (only if there are any).
@@ -213,11 +214,15 @@ function emitResourceTree(
   ownedByResource: Map<string, TypeDef[]>,
   typeOwners: Map<string, string>,
   sharedTypeNames: Set<string>,
+  depth: number,
+  resourceEntryPaths: Map<string, string>,
 ): void {
   const ctx = {
     ownedTypes: ownedByResource.get(resource.name) ?? [],
     typeOwners,
     sharedTypeNames,
+    depth: resource.children.length > 0 ? depth + 1 : depth,
+    resourceEntryPaths,
   };
 
   if (resource.children.length > 0) {
@@ -225,7 +230,7 @@ function emitResourceTree(
     files.set(`${dirPath}/index.ts`, emitResourceFile(resource, ctx));
 
     for (const child of resource.children) {
-      emitResourceTree(files, child, dirPath, ownedByResource, typeOwners, sharedTypeNames);
+      emitResourceTree(files, child, dirPath, ownedByResource, typeOwners, sharedTypeNames, depth + 1, resourceEntryPaths);
     }
   } else {
     files.set(`${basePath}/${resource.name}.ts`, emitResourceFile(resource, ctx));

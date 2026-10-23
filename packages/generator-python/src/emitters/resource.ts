@@ -3,15 +3,16 @@ import { emitPythonTypeRef, collectResourceTypeRefs } from '../snippets/type-ref
 import { fileHeader } from '../snippets/formatters.js';
 import { snakeCase as toSnake } from '../snippets/formatters.js';
 
-export function emitResourceFile(resource: ResourceNode): string {
-  const imports = buildImports(resource);
+export function emitResourceFile(resource: ResourceNode, depth = 1): string {
+  const imports = buildImports(resource, depth);
   const syncClass = emitResourceClass(resource, 'sync');
   const asyncClass = emitResourceClass(resource, 'async');
 
   return [fileHeader(), '', imports, '', '', syncClass, '', '', asyncClass, ''].join('\n');
 }
 
-function buildImports(resource: ResourceNode): string {
+function buildImports(resource: ResourceNode, depth: number): string {
+  const parent = '.'.repeat(depth + 1);
   const lines: string[] = [
     'from __future__ import annotations',
     '',
@@ -33,14 +34,14 @@ function buildImports(resource: ResourceNode): string {
   if (hasCursor) coreImports.push('SyncCursorPage', 'AsyncCursorPage');
   if (hasOffset) coreImports.push('SyncOffsetPage', 'AsyncOffsetPage');
 
-  lines.push(`from .._core import ${coreImports.join(', ')}`);
+  lines.push(`from ${parent}_core import ${coreImports.join(', ')}`);
 
   // All type refs come from ..types (one file per type, Stainless convention)
   const typeRefs = collectResourceTypeRefs(resource);
   if (typeRefs.size > 0) {
     for (const ref of [...typeRefs].sort()) {
       const refFile = toSnake(ref);
-      lines.push(`from ..types.${refFile} import ${ref}`);
+      lines.push(`from ${parent}types.${refFile} import ${ref}`);
     }
   }
 
