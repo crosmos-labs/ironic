@@ -97,6 +97,9 @@ export function collectResourceTypeRefs(resource: ResourceNode): Set<string> {
       for (const r of collectTypeRefs(method.requestBody)) refs.add(r);
     }
     for (const r of collectTypeRefs(method.responseType)) refs.add(r);
+    if (method.paginationItemType) {
+      for (const r of collectTypeRefs(method.paginationItemType)) refs.add(r);
+    }
     for (const param of [...method.pathParams, ...method.queryParams]) {
       for (const r of collectTypeRefs(param.type)) refs.add(r);
     }

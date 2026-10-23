@@ -278,9 +278,10 @@ class SyncAPIClient(_BaseClient):
         return Stream(response)
 
     def _get_page(self, page_cls: type, path: str, **kwargs: Any) -> Any:
+        pagination = kwargs.pop("pagination", {})
         response = self._request("GET", path, **kwargs)
         body = response.json()
-        return page_cls._from_response(body, client=self, options={"path": path, **kwargs})
+        return page_cls._from_response(body, client=self, options={"path": path, "pagination": pagination, **kwargs}, **pagination)
 
 
 class AsyncAPIClient(_BaseClient):
@@ -422,9 +423,10 @@ class AsyncAPIClient(_BaseClient):
         return AsyncStream(response)
 
     async def _get_page(self, page_cls: type, path: str, **kwargs: Any) -> Any:
+        pagination = kwargs.pop("pagination", {})
         response = await self._request("GET", path, **kwargs)
         body = response.json()
-        return page_cls._from_response(body, client=self, options={"path": path, **kwargs})
+        return page_cls._from_response(body, client=self, options={"path": path, "pagination": pagination, **kwargs}, **pagination)
 
 
 class SyncAPIResource:

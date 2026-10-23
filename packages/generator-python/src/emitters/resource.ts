@@ -169,10 +169,26 @@ function buildMethodBody(method: MethodNode, isAsync: boolean): string {
     const pageClass = method.pagination === 'cursor'
       ? (isAsync ? 'AsyncCursorPage' : 'SyncCursorPage')
       : (isAsync ? 'AsyncOffsetPage' : 'SyncOffsetPage');
+    const scheme = method.paginationConfig;
+    const pagination = method.pagination === 'cursor' ? {
+      items_key: scheme?.response.itemsKey ?? 'data',
+      has_more_key: scheme?.response.hasMoreKey ?? 'has_more',
+      cursor_param: scheme?.request.cursorParam ?? 'after',
+      cursor_field: scheme?.response.cursorField ?? 'id',
+      cursor_source: scheme?.response.cursorSource ?? 'last_item_id',
+      next_cursor_key: scheme?.response.nextCursorKey ?? 'next_cursor',
+    } : {
+      items_key: scheme?.response.itemsKey ?? 'data',
+      total_key: scheme?.response.totalKey ?? 'total',
+      page_param: scheme?.request.pageParam ?? 'page',
+      per_page_param: scheme?.request.perPageParam ?? 'per_page',
+      mode: scheme?.mode ?? 'page_number',
+    };
+    const paginatedArgs = `${argsStr}, pagination=${JSON.stringify(pagination)}`;
     if (isAsync) {
-      return `return await self._client._get_page(${pageClass}, ${argsStr})`;
+      return `return await self._client._get_page(${pageClass}, ${paginatedArgs})`;
     }
-    return `return self._client._get_page(${pageClass}, ${argsStr})`;
+    return `return self._client._get_page(${pageClass}, ${paginatedArgs})`;
   }
 
   const isVoid = method.responseType.kind === 'primitive' && (method.responseType.type === 'void' || method.responseType.type === 'null');
@@ -207,7 +223,7 @@ function buildReturnType(method: MethodNode, isAsync: boolean): string {
   }
 
   if (method.pagination) {
-    const itemType = extractPageItemType(method.responseType);
+    const itemType = method.paginationItemType ?? extractPageItemType(method.responseType);
     const pageClass = method.pagination === 'cursor'
       ? (isAsync ? 'AsyncCursorPage' : 'SyncCursorPage')
       : (isAsync ? 'AsyncOffsetPage' : 'SyncOffsetPage');

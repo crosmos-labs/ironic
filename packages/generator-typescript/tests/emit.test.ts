@@ -54,6 +54,7 @@ describe('TypeScript generator (petstore)', () => {
     expect(pets).toContain('export interface PetListPetsParams ');
     // The declare-namespace block surfaces them under `Pets.Pet`.
     expect(pets).toContain('export declare namespace Pets {');
+    expect(pets).toContain('Promise<CursorPage<Pet>>');
   });
 
   it('resources barrel re-exports each resource', async () => {

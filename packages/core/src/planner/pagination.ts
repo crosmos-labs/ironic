@@ -37,15 +37,17 @@ export function planPagination(config: IronicConfig): PaginationScheme[] {
           hasMoreKey: (resp.has_more_key as string) ?? 'has_more',
           cursorSource: (resp.cursor_source as PaginationScheme['response']['cursorSource']) ?? 'last_item_id',
           cursorField: (resp.cursor_field as string) ?? 'id',
+          nextCursorKey: (resp.next_cursor_field as string) ?? 'next_cursor',
         },
       });
     } else if (type === 'offset' || type === 'page_number') {
       schemes.push({
         name: 'offset',
         type: 'offset',
+        mode: type === 'offset' ? 'offset' : 'page_number',
         request: {
-          pageParam: (req.page_param as string) ?? (req.offset_param as string) ?? 'page',
-          perPageParam: (req.per_page_param as string) ?? (req.limit_param as string) ?? 'per_page',
+          pageParam: (req.page_param as string) ?? (req.offset_param as string) ?? (type === 'offset' ? 'offset' : 'page'),
+          perPageParam: (req.per_page_param as string) ?? (req.limit_param as string) ?? (type === 'offset' ? 'limit' : 'per_page'),
         },
         response: {
           itemsKey: (resp.items_key as string) ?? 'data',

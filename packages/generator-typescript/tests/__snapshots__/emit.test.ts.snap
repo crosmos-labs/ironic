@@ -95,8 +95,8 @@ export class Pets extends APIResource {
   /**
    * Returns a paginated list of pets.
    */
-  async listPets(query: PetListPetsParams | null | undefined = {}, options?: RequestOptions): Promise<CursorPage<PetsListPetsResponse>> {
-    return this._client.getAPIList<PetsListPetsResponse, CursorPage<PetsListPetsResponse>>('/pets', CursorPage, { query, ...options });
+  async listPets(query: PetListPetsParams | null | undefined = {}, options?: RequestOptions): Promise<CursorPage<Pet>> {
+    return this._client.getAPIList<Pet, CursorPage<Pet>>('/pets', CursorPage, { query, ...options, pagination: {"type":"cursor","request":{"cursorParam":"after","limitParam":"limit"},"response":{"itemsKey":"data","hasMoreKey":"has_more","cursorSource":"last_item_id","cursorField":"id","nextCursorKey":"next_cursor"}} });
   }
 
   /**

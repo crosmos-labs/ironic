@@ -4,6 +4,20 @@
 
 import type { RequestOptions } from './types.js';
 
+export interface PaginationConfig {
+  type: 'cursor' | 'offset';
+  mode?: 'offset' | 'page_number';
+  request: { cursorParam?: string; limitParam?: string; pageParam?: string; perPageParam?: string };
+  response: {
+    itemsKey: string;
+    hasMoreKey?: string;
+    cursorSource?: 'last_item_id' | 'last_id_field' | 'next_cursor_field';
+    cursorField?: string;
+    nextCursorKey?: string;
+    totalKey?: string;
+  };
+}
+
 /**
  * Base client interface that pages need to request the next page.
  * This avoids circular deps — the real client implements this.
@@ -92,7 +106,7 @@ export abstract class AbstractPage<Item> implements AsyncIterable<Item> {
  * Expects response shape: `{ data: Item[], has_more: boolean }`
  * Sends `after` query param with the last item's ID.
  */
-export class CursorPage<Item extends { id: string }> extends AbstractPage<Item> {
+export class CursorPage<Item> extends AbstractPage<Item> {
   data: Item[];
   has_more: boolean;
 
@@ -103,8 +117,11 @@ export class CursorPage<Item extends { id: string }> extends AbstractPage<Item> 
   ) {
     super(client, response, options);
     const body = response as Record<string, unknown>;
-    this.data = (body.data as Item[]) ?? [];
-    this.has_more = (body.has_more as boolean) ?? false;
+    const config = options.pagination?.response;
+    this.data = (body[config?.itemsKey ?? 'data'] as Item[]) ?? [];
+    this.has_more = config?.cursorSource === 'next_cursor_field'
+      ? Boolean(body[config.nextCursorKey ?? 'next_cursor'])
+      : Boolean(body[config?.hasMoreKey ?? 'has_more']);
   }
 
   getPaginatedItems(): Item[] {
@@ -112,16 +129,18 @@ export class CursorPage<Item extends { id: string }> extends AbstractPage<Item> 
   }
 
   nextPageRequestOptions(): RequestOptions | null {
-    if (!this.has_more || this.data.length === 0) return null;
-
-    const lastItem = this.data[this.data.length - 1];
-    if (!lastItem) return null;
+    if (!this.has_more) return null;
+    const config = this.options.pagination;
+    const cursor = config?.response.cursorSource === 'next_cursor_field'
+      ? (this.response as Record<string, unknown>)[config.response.nextCursorKey ?? 'next_cursor']
+      : (this.data[this.data.length - 1] as Record<string, unknown> | undefined)?.[config?.response.cursorField ?? 'id'];
+    if (cursor == null) return null;
 
     return {
       ...this.options,
       query: {
         ...this.options.query,
-        after: lastItem.id,
+        [config?.request.cursorParam ?? 'after']: cursor,
       },
     };
   }
@@ -143,8 +162,9 @@ export class OffsetPage<Item> extends AbstractPage<Item> {
   ) {
     super(client, response, options);
     const body = response as Record<string, unknown>;
-    this.data = (body.data as Item[]) ?? [];
-    this.total = (body.total as number) ?? 0;
+    const config = options.pagination?.response;
+    this.data = (body[config?.itemsKey ?? 'data'] as Item[]) ?? [];
+    this.total = Number(body[config?.totalKey ?? 'total'] ?? 0);
   }
 
   getPaginatedItems(): Item[] {
@@ -153,17 +173,22 @@ export class OffsetPage<Item> extends AbstractPage<Item> {
 
   nextPageRequestOptions(): RequestOptions | null {
     const q = (this.options.query ?? {}) as Record<string, unknown>;
-    const currentPage = (q.page as number) ?? 1;
-    const perPage = (q.per_page as number) ?? 20;
-
-    if (currentPage * perPage >= this.total) return null;
+    const config = this.options.pagination;
+    const pageParam = config?.request.pageParam ?? 'page';
+    const perPageParam = config?.request.perPageParam ?? 'per_page';
+    const mode = config?.mode ?? 'page_number';
+    const current = Number(q[pageParam] ?? (mode === 'offset' ? 0 : 1));
+    const perPage = Number(q[perPageParam] ?? this.data.length);
+    if (!this.data.length || !perPage) return null;
+    const next = mode === 'offset' ? current + this.data.length : current + 1;
+    if ((mode === 'offset' ? next : current * perPage) >= this.total) return null;
 
     return {
       ...this.options,
       query: {
         ...q,
-        page: currentPage + 1,
-        per_page: perPage,
+        [pageParam]: next,
+        [perPageParam]: perPage,
       },
     };
   }
