@@ -35,27 +35,25 @@ export const styles = `
   background: var(--ctp-base);
   font-synthesis: none;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --ctp-base: #1e1e2e;
-    --ctp-mantle: #181825;
-    --ctp-crust: #11111b;
-    --ctp-surface0: #313244;
-    --ctp-surface1: #45475a;
-    --ctp-text: #cdd6f4;
-    --ctp-subtext1: #bac2de;
-    --ctp-subtext0: #a6adc8;
-    --ctp-overlay1: #7f849c;
-    --ctp-blue: #89b4fa;
-    --ctp-mauve: #cba6f7;
-    --ctp-peach: #fab387;
-    --ctp-red: #f38ba8;
-    --link: var(--ctp-blue);
-    --panel: var(--ctp-surface0);
-    --border: var(--ctp-surface1);
-    --code-bg: var(--ctp-mantle);
-  }
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ctp-base: #1e1e2e;
+  --ctp-mantle: #181825;
+  --ctp-crust: #11111b;
+  --ctp-surface0: #313244;
+  --ctp-surface1: #45475a;
+  --ctp-text: #cdd6f4;
+  --ctp-subtext1: #bac2de;
+  --ctp-subtext0: #a6adc8;
+  --ctp-overlay1: #7f849c;
+  --ctp-blue: #89b4fa;
+  --ctp-mauve: #cba6f7;
+  --ctp-peach: #fab387;
+  --ctp-red: #f38ba8;
+  --link: var(--ctp-blue);
+  --panel: var(--ctp-surface0);
+  --border: var(--ctp-surface1);
+  --code-bg: var(--ctp-mantle);
 }
 * {
   box-sizing: border-box;
@@ -74,7 +72,8 @@ a:hover {
   text-decoration: underline;
 }
 a:focus-visible,
-input:focus-visible {
+input:focus-visible,
+button:focus-visible {
   outline: 3px solid var(--ctp-blue);
   outline-offset: 2px;
 }
@@ -114,6 +113,26 @@ input:focus-visible {
   font-family: Georgia, serif;
   font-style: italic;
   font-size: 22px;
+}
+.theme-toggle {
+  display: block;
+  width: 100%;
+  margin: -17px 0 24px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--ctp-base);
+  color: var(--ctp-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.theme-toggle:hover {
+  border-color: var(--ctp-blue);
+}
+.theme-toggle[hidden] {
+  display: none;
 }
 .search-label {
   display: block;
@@ -193,7 +212,7 @@ input:focus-visible {
   max-width: 1120px;
   width: 100%;
   padding: 70px clamp(28px, 6vw, 92px) 120px;
-  margin: auto;
+  margin: 0 auto;
 }
 .eyebrow {
   font-size: 11px;
@@ -213,6 +232,19 @@ h1 {
   letter-spacing: -0.045em;
   line-height: 1.09;
   margin: 18px 0 16px;
+  color: var(--ctp-text);
+}
+.type-title {
+  font-size: clamp(34px, 4.5vw, 52px);
+  overflow-wrap: anywhere;
+}
+.type-identifier {
+  margin: 0 0 30px;
+}
+.type-identifier code {
+  background: var(--code-bg);
+  border-radius: 5px;
+  padding: 5px 8px;
   color: var(--ctp-text);
 }
 h2 {
@@ -393,6 +425,14 @@ td code {
   border-radius: 4px;
   padding: 2px 4px;
   color: var(--ctp-text);
+}
+.type-expression {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.type-expression a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .table-wrap {
   overflow-x: auto;

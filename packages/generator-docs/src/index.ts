@@ -2,6 +2,7 @@
 import type { IR, MethodNode, ParamNode, ResourceNode, TypeRef } from '@ironic/core';
 import { styles } from './styles.js';
 import { searchScript } from './search.js';
+import { themeBootstrapScript, themeScript } from './theme.js';
 
 export interface DocsOptions {
   title?: string;
@@ -46,6 +47,7 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
   const nav = (root: string, active?: string): string => `
     <aside class="sidebar" aria-label="Documentation navigation">
       <a class="brand" href="${root}index.html"><span class="brand-mark">I</span><span>${escapeHtml(title)}</span></a>
+      <button id="theme-toggle" class="theme-toggle" type="button" hidden>Switch theme</button>
       <label class="search-label" for="doc-search">Search documentation</label>
       <input id="doc-search" type="search" placeholder="Search docs…" autocomplete="off" aria-controls="search-results">
       <div id="search-results" class="search-results" role="status" hidden></div>
@@ -62,7 +64,7 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
   const page = (pageTitle: string, content: string, root: string, active: string): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark"><title>${escapeHtml(pageTitle === title ? title : `${pageTitle} · ${title}`)}</title>
-<link rel="stylesheet" href="${root}assets/site.css"><script src="${root}assets/site.js" defer></script></head>
+<script src="${root}assets/theme.js"></script><link rel="stylesheet" href="${root}assets/site.css"><script src="${root}assets/site.js" defer></script></head>
 <body data-root="${root}"><div class="layout">${nav(root, active)}<main id="main-content" class="main">${content}</main></div></body></html>`;
 
   const overview = `
@@ -85,6 +87,7 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
   }
   for (const type of ir.types) {
     const path = typePaths.get(type.name)!;
+    const displayName = humanizeIdentifier(type.name);
     const properties =
       type.type.kind === 'object'
         ? type.type.properties
@@ -92,7 +95,9 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
           ? type.type.properties
           : undefined;
     const content = `<div class="eyebrow">${type.isRequestBody ? 'REQUEST TYPE' : 'DATA TYPE'}</div>
-      <h1>${escapeHtml(type.name)}</h1>${type.description ? `<p class="lede">${escapeHtml(type.description)}</p>` : ''}
+      <h1 class="type-title">${escapeHtml(displayName)}</h1>
+      ${displayName !== type.name ? `<p class="type-identifier"><code>${escapeHtml(type.name)}</code></p>` : ''}
+      ${type.description ? `<p class="lede">${escapeHtml(type.description)}</p>` : ''}
       ${properties ? propertyTable(properties, linkType, '../') : `<section class="schema-value"><h2>Definition</h2><p>${linkType(type.type, '../')}</p></section>`}`;
     files.set(path, page(type.name, content, '../', path));
   }
@@ -114,7 +119,8 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
     })),
   ];
   files.set('assets/site.css', styles);
-  files.set('assets/site.js', `const entries = ${JSON.stringify(searchEntries)};\n${searchScript}`);
+  files.set('assets/theme.js', themeBootstrapScript);
+  files.set('assets/site.js', `const entries = ${JSON.stringify(searchEntries)};\n${searchScript}\n${themeScript}`);
   return files;
 }
 
@@ -171,30 +177,43 @@ function propertyTable(
 }
 
 function formatType(ref: TypeRef, root: string, paths: Map<string, string>): string {
+  return `<code class="type-expression">${formatTypeContent(ref, root, paths)}</code>`;
+}
+
+function formatTypeContent(ref: TypeRef, root: string, paths: Map<string, string>): string {
   switch (ref.kind) {
     case 'primitive':
-      return `<code>${escapeHtml(ref.type)}</code>`;
+      return escapeHtml(ref.type);
     case 'ref': {
       const path = paths.get(ref.name);
       return path
-        ? `<a href="${root}${path}"><code>${escapeHtml(ref.name)}</code></a>`
-        : `<code>${escapeHtml(ref.name)}</code>`;
+        ? `<a href="${root}${path}">${escapeHtml(ref.name)}</a>`
+        : escapeHtml(ref.name);
     }
-    case 'array':
-      return `${formatType(ref.items, root, paths)}[]`;
+    case 'array': {
+      const item = formatTypeContent(ref.items, root, paths);
+      return ['union', 'intersection', 'nullable'].includes(ref.items.kind) ? `(${item})[]` : `${item}[]`;
+    }
     case 'record':
-      return `Record&lt;string, ${formatType(ref.valueType, root, paths)}&gt;`;
+      return `Record&lt;string, ${formatTypeContent(ref.valueType, root, paths)}&gt;`;
     case 'object':
-      return `<code>object</code>${Object.keys(ref.properties).length ? ` <span class="muted">(${Object.keys(ref.properties).length} properties)</span>` : ''}`;
+      return 'object';
     case 'enum':
-      return ref.values.map((value) => `<code>${escapeHtml(value)}</code>`).join(' | ');
+      return ref.values.map(escapeHtml).join(' | ');
     case 'union':
-      return ref.members.map((member) => formatType(member, root, paths)).join(' | ');
+      return ref.members.map((member) => formatTypeContent(member, root, paths)).join(' | ');
     case 'intersection':
-      return ref.members.map((member) => formatType(member, root, paths)).join(' &amp; ');
+      return ref.members.map((member) => formatTypeContent(member, root, paths)).join(' &amp; ');
     case 'nullable':
-      return `${formatType(ref.inner, root, paths)} | <code>null</code>`;
+      return `${formatTypeContent(ref.inner, root, paths)} | null`;
   }
+}
+
+function humanizeIdentifier(name: string): string {
+  return name
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ');
 }
 
 function authLabel(ir: IR): string {
