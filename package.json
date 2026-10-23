@@ -9,13 +9,18 @@
     "test": "vitest",
     "test:runtime": "vitest run --config vitest.runtime.config.ts",
     "test:python": "node --import tsx tests/python/generate-fixtures.mts && python3 -m unittest discover -s tests/python",
+    "test:generated": "node --import tsx tests/package-validation/validate.mts",
     "lint": "eslint packages",
     "format": "prettier --write packages docs",
     "dev:cli": "tsx packages/cli/src/index.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.72.0",
+    "@typescript-eslint/parser": "^8.72.0",
+    "eslint": "^9.39.5",
     "prettier": "^3.4.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",

@@ -5,6 +5,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 ## [Unreleased]
 
 ### Added
+- CI validation that builds and imports generated SDKs, compiles an MCP server, and invokes both MCP tools over stdio.
 - Cursor + offset pagination integration in generated resource methods — `list` methods now return `CursorPage<T>` / `OffsetPage<T>` instead of `Promise<RawShape>`.
 - `--dry-run` flag on `ironic generate`.
 - Runtime smoke tests against the generated petstore SDK (pagination iteration, retries on 429, typed errors).

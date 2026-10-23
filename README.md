@@ -40,7 +40,7 @@ npx ironic generate   # writes SDK + MCP server
 | Retries with exponential backoff | ✅ |
 | Bearer / API-key / basic auth | ✅ |
 | Auto-inference of resources from paths | ✅ |
-| Python target | ⏳ (planned) |
+| Python target | ✅ |
 | Docs site generator | ⏳ (planned) |
 
 ## Repo layout
@@ -51,7 +51,9 @@ packages/
   core/                   ← parser + planner + IR types
   generator-typescript/   ← TS SDK emitter
   generator-mcp/          ← MCP server emitter
+  generator-python/       ← Python SDK emitter
   runtime-typescript/     ← copied into generated SDKs
+  runtime-python/         ← copied into generated SDKs
 examples/
   petstore/               ← test fixture
 docs/                     ← design docs

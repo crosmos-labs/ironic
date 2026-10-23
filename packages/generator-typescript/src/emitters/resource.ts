@@ -20,6 +20,10 @@ export interface ResourceEmitContext {
   typeOwners: Map<string, string>;
   /** Set of type names that live in `src/types/shared.ts`. */
   sharedTypeNames: Set<string>;
+  /** Number of directory levels from this resource file back to src/. */
+  depth?: number;
+  /** Top-level resource entry paths relative to src/resources/. */
+  resourceEntryPaths?: Map<string, string>;
 }
 
 /**
@@ -63,31 +67,32 @@ ${reExports}
  *   - Shared (unowned) → imported from `../types/shared.js`
  */
 function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string {
+  const prefix = '../'.repeat(ctx?.depth ?? 1);
   const lines: string[] = [
-    `import { APIResource } from '../core/api-client.js';`,
-    `import type { RequestOptions } from '../core/types.js';`,
+    `import { APIResource } from '${prefix}core/api-client.js';`,
+    `import type { RequestOptions } from '${prefix}core/types.js';`,
   ];
 
   const needsAPIPromise = resource.methods.some((m) => !m.streaming && !m.pagination);
   if (needsAPIPromise) {
-    lines.push(`import { APIPromise } from '../core/api-promise.js';`);
+    lines.push(`import { APIPromise } from '${prefix}core/api-promise.js';`);
   }
 
   const needsPathTpl = resource.methods.some((m) => m.pathParams.length > 0);
   if (needsPathTpl) {
-    lines.push(`import { path } from '../core/path.js';`);
+    lines.push(`import { path } from '${prefix}core/path.js';`);
   }
 
   // `delete` and other void-returning methods need to set Accept: */* so the
   // runtime doesn't try to parse an empty 204 body as JSON.
   const needsBuildHeaders = resource.methods.some((m) => m.httpMethod === 'delete');
   if (needsBuildHeaders) {
-    lines.push(`import { buildHeaders } from '../core/headers.js';`);
+    lines.push(`import { buildHeaders } from '${prefix}core/headers.js';`);
   }
 
   for (const child of resource.children) {
     lines.push(
-      `import { ${child.className} } from './${camelCase(child.name)}/index.js';`,
+      `import { ${child.className} } from './${camelCase(child.name)}${child.children.length > 0 ? '/index' : ''}.js';`,
     );
   }
 
@@ -97,12 +102,12 @@ function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string
     const paginationImports: string[] = [];
     if (hasCursorPagination) paginationImports.push('CursorPage');
     if (hasOffsetPagination) paginationImports.push('OffsetPage');
-    lines.push(`import { ${paginationImports.join(', ')} } from '../core/pagination.js';`);
+    lines.push(`import { ${paginationImports.join(', ')} } from '${prefix}core/pagination.js';`);
   }
 
   const hasStreaming = resource.methods.some((m) => m.streaming);
   if (hasStreaming) {
-    lines.push(`import { Stream } from '../core/streaming.js';`);
+    lines.push(`import { Stream } from '${prefix}core/streaming.js';`);
   }
 
   // ── Type imports (split by owner) ──
@@ -129,10 +134,12 @@ function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string
   // Stable, alphabetized
   for (const owner of [...fromOtherResource.keys()].sort()) {
     const names = fromOtherResource.get(owner)!.slice().sort();
-    lines.push(`import type { ${names.join(', ')} } from './${owner}.js';`);
+    const resourceRoot = '../'.repeat((ctx?.depth ?? 1) - 1);
+    const entryPath = ctx?.resourceEntryPaths?.get(owner) ?? `${owner}.js`;
+    lines.push(`import type { ${names.join(', ')} } from './${resourceRoot}${entryPath}';`);
   }
   if (fromShared.length > 0) {
-    lines.push(`import type { ${fromShared.slice().sort().join(', ')} } from '../types/shared.js';`);
+    lines.push(`import type { ${fromShared.slice().sort().join(', ')} } from '${prefix}types/shared.js';`);
   }
 
   return lines.join('\n');

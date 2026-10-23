@@ -49,7 +49,7 @@ export function emit(ir: IR, options: EmitOptions = {}): FileTree {
 
   // 4. Emit resource files (types are imported from ../types/)
   for (const resource of ir.resources) {
-    emitResourceTree(files, resource, `${moduleName}/resources`);
+    emitResourceTree(files, resource, `${moduleName}/resources`, 1);
   }
   files.set(`${moduleName}/resources/__init__.py`, emitResourcesInit(ir));
 
@@ -147,16 +147,17 @@ function emitResourceTree(
   files: FileTree,
   resource: ResourceNode,
   basePath: string,
+  depth: number,
 ): void {
   const modName = snakeCase(resource.name);
 
   if (resource.children.length > 0) {
     const dirPath = `${basePath}/${modName}`;
-    files.set(`${dirPath}/__init__.py`, emitResourceFile(resource));
+    files.set(`${dirPath}/__init__.py`, emitResourceFile(resource, depth + 1));
     for (const child of resource.children) {
-      emitResourceTree(files, child, dirPath);
+      emitResourceTree(files, child, dirPath, depth + 1);
     }
   } else {
-    files.set(`${basePath}/${modName}.py`, emitResourceFile(resource));
+    files.set(`${basePath}/${modName}.py`, emitResourceFile(resource, depth));
   }
 }
