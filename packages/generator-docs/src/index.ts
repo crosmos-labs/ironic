@@ -61,7 +61,7 @@ export function emit(ir: IR, options: DocsOptions = {}): Map<string, string> {
     </aside>`;
   const page = (pageTitle: string, content: string, root: string, active: string): string => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light"><title>${escapeHtml(pageTitle === title ? title : `${pageTitle} · ${title}`)}</title>
+<meta name="color-scheme" content="light dark"><title>${escapeHtml(pageTitle === title ? title : `${pageTitle} · ${title}`)}</title>
 <link rel="stylesheet" href="${root}assets/site.css"><script src="${root}assets/site.js" defer></script></head>
 <body data-root="${root}"><div class="layout">${nav(root, active)}<main id="main-content" class="main">${content}</main></div></body></html>`;
 

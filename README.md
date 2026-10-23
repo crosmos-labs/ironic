@@ -59,7 +59,7 @@ npx ironic generate --target docs
 # Open generated/docs/index.html directly, or serve generated/docs as static files.
 ```
 
-The docs target can be used without a TypeScript or Python target. It writes standalone HTML, CSS, and JavaScript files; no site build or server runtime is needed.
+The docs target can be used without a TypeScript or Python target. It writes standalone HTML, CSS, and JavaScript files; no site build or server runtime is needed. The site uses Catppuccin Latte in light mode and Mocha in dark mode, both with blue accents.
 
 ## Repo layout
 
