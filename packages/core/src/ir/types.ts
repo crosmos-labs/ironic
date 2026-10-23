@@ -124,12 +124,19 @@ export interface MethodNode {
   pathParams: ParamNode[];
   /** Query parameters */
   queryParams: ParamNode[];
+  /** Header and cookie parameters declared by the operation. */
+  headerParams?: ParamNode[];
+  cookieParams?: ParamNode[];
   /** Name of the synthesized params interface (set by the type collector when queryParams.length > 0) */
   queryParamsTypeName?: string;
   /** Request body type (null if no body) */
   requestBody: TypeRef | null;
+  requestBodyRequired?: boolean;
+  requestBodyContentType?: 'application/json' | 'text/plain' | 'application/octet-stream' | 'multipart/form-data';
   /** Response type */
   responseType: TypeRef;
+  responseFormat?: 'json' | 'text' | 'binary';
+  responseContentType?: string;
   /** Pagination scheme name (if paginated) */
   pagination?: string;
   /** The scheme selected for this operation, including configured wire names. */
@@ -157,6 +164,8 @@ export interface ParamNode {
   required: boolean;
   /** Description */
   description?: string;
+  style?: string;
+  explode?: boolean;
 }
 
 // ── Types ──

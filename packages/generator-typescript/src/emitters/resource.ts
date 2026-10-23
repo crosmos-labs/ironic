@@ -85,7 +85,9 @@ function buildImports(resource: ResourceNode, ctx?: ResourceEmitContext): string
 
   // `delete` and other void-returning methods need to set Accept: */* so the
   // runtime doesn't try to parse an empty 204 body as JSON.
-  const needsBuildHeaders = resource.methods.some((m) => m.httpMethod === 'delete');
+  const needsBuildHeaders = resource.methods.some((m) => m.httpMethod === 'delete' ||
+    (m.responseFormat && m.responseFormat !== 'json') ||
+    (m.requestBodyContentType && m.requestBodyContentType !== 'application/json' && m.requestBodyContentType !== 'multipart/form-data'));
   if (needsBuildHeaders) {
     lines.push(`import { buildHeaders } from '${prefix}core/headers.js';`);
   }
@@ -207,8 +209,11 @@ function buildMethodSignature(method: MethodNode): string {
 
   // Request body
   if (method.requestBody) {
-    const bodyType = emitTypeRef(method.requestBody);
-    params.push(`body: ${bodyType}`);
+    const bodyType = method.requestBodyContentType === 'application/octet-stream' ? 'Uint8Array' : emitTypeRef(method.requestBody);
+    const laterRequired = method.queryParams.some((p) => p.required) || [...(method.headerParams ?? []), ...(method.cookieParams ?? [])].some((p) => p.required);
+    params.push(method.requestBodyRequired === false
+      ? laterRequired ? `body: ${bodyType} | undefined` : `body?: ${bodyType}`
+      : `body: ${bodyType}`);
   }
 
   // Query params. Stainless ergonomics:
@@ -216,14 +221,14 @@ function buildMethodSignature(method: MethodNode): string {
   //   - Some required → `query: T`                          (required positional)
   const hasRequiredQuery = method.queryParams.some((p) => p.required);
   if (method.queryParamsTypeName) {
-    if (hasRequiredQuery) {
+    if (hasRequiredQuery || [...(method.headerParams ?? []), ...(method.cookieParams ?? [])].some((p) => p.required)) {
       params.push(`query: ${method.queryParamsTypeName}`);
     } else {
       params.push(`query: ${method.queryParamsTypeName} | null | undefined = {}`);
     }
   } else if (method.queryParams.length > 0) {
     const queryType = buildQueryParamsType(method.queryParams);
-    if (hasRequiredQuery) {
+    if (hasRequiredQuery || [...(method.headerParams ?? []), ...(method.cookieParams ?? [])].some((p) => p.required)) {
       params.push(`query: ${queryType}`);
     } else {
       params.push(`query: ${queryType} | null | undefined = {}`);
@@ -231,7 +236,16 @@ function buildMethodSignature(method: MethodNode): string {
   }
 
   // Per-call request options (headers, timeout, signal, maxRetries).
-  params.push(`options?: RequestOptions`);
+  const requiredWireParams = [...(method.headerParams ?? []), ...(method.cookieParams ?? [])].some((p) => p.required);
+  const optionsFields: string[] = [];
+  for (const [key, wireParams] of [['headers', method.headerParams ?? []], ['cookies', method.cookieParams ?? []]] as const) {
+    if (!wireParams.length) continue;
+    const required = wireParams.some((p) => p.required);
+    const fields = wireParams.map((p) => `${JSON.stringify(p.name)}${p.required ? '' : '?'}: ${emitTypeRef(p.type)}`).join('; ');
+    optionsFields.push(`${key}${required ? '' : '?'}: { ${fields} }`);
+  }
+  const optionsType = optionsFields.length ? `RequestOptions & { ${optionsFields.join('; ')} }` : 'RequestOptions';
+  params.push(`options${requiredWireParams ? '' : '?'}: ${optionsType}`);
 
   // Return type
   const returnType = buildReturnType(method);
@@ -254,15 +268,36 @@ function buildMethodBody(method: MethodNode): string {
   const httpMethod = method.httpMethod;
   const hasBody = !!method.requestBody;
   const hasQuery = method.queryParams.length > 0;
+  const format = method.responseFormat && method.responseFormat !== 'json' ? `responseFormat: '${method.responseFormat}'` : '';
+  const headerDefaults: Record<string, string> = {};
+  if (method.responseFormat === 'text') headerDefaults.Accept = method.responseContentType ?? 'text/plain';
+  if (method.responseFormat === 'binary') headerDefaults.Accept = method.responseContentType ?? 'application/octet-stream';
+  if (method.requestBodyContentType && method.requestBodyContentType !== 'application/json' && method.requestBodyContentType !== 'multipart/form-data') {
+    headerDefaults['Content-Type'] = method.requestBodyContentType;
+  }
+  const headers = Object.keys(headerDefaults).length
+    ? `headers: buildHeaders([${JSON.stringify(headerDefaults)}, options?.headers])` : '';
+  const querySerialization = Object.fromEntries(method.queryParams.flatMap((p) => {
+    if (p.style === 'deepObject') return [[p.name, 'deepObject']];
+    if (p.style === 'spaceDelimited') return [[p.name, 'space']];
+    if (p.style === 'pipeDelimited') return [[p.name, 'pipe']];
+    if (p.type.kind === 'object' || p.type.kind === 'record') {
+      return [[p.name, p.explode === false ? 'formObjectComma' : 'formObject']];
+    }
+    return p.type.kind === 'array' && p.explode === false ? [[p.name, 'comma']] : [];
+  }));
+  const serialization = Object.keys(querySerialization).length ? `querySerialization: ${JSON.stringify(querySerialization)}` : '';
+  const generated = [format, headers, serialization].filter(Boolean);
 
   // Stainless ordering: explicit fields BEFORE the options spread. When there's
   // no body and no query, pass `options` straight through instead of wrapping.
   const callTail = (() => {
-    if (!hasBody && !hasQuery) return ', options';
+    if (!hasBody && !hasQuery && !generated.length) return ', options';
     const parts: string[] = [];
     if (hasBody) parts.push('body');
     if (hasQuery) parts.push('query');
     parts.push('...options');
+    parts.push(...generated);
     return `, { ${parts.join(', ')} }`;
   })();
 
@@ -280,7 +315,7 @@ function buildMethodBody(method: MethodNode): string {
       request: scheme?.request ?? {},
       response: scheme?.response ?? { itemsKey: 'data' },
     });
-    const parts = [hasBody ? 'body' : '', hasQuery ? 'query' : '', '...options', `pagination: ${pagination}`].filter(Boolean);
+    const parts = [hasBody ? 'body' : '', hasQuery ? 'query' : '', '...options', ...generated, `pagination: ${pagination}`].filter(Boolean);
     return `return this._client.getAPIList<${itemType}, ${pageClass}<${itemType}>>(${pathExpr}, ${pageClass}, { ${parts.join(', ')} });`;
   }
 
@@ -305,7 +340,11 @@ function buildMethodBody(method: MethodNode): string {
       if (hasBody) deleteParts.push('body');
       if (hasQuery) deleteParts.push('query');
       deleteParts.push('...options');
-      deleteParts.push(`headers: buildHeaders([{ Accept: '*/*' }, options?.headers])`);
+      const deleteHeaders = Object.keys(headerDefaults).length
+        ? JSON.stringify({ Accept: '*/*', ...headerDefaults })
+        : `{ Accept: '*/*' }`;
+      deleteParts.push(`headers: buildHeaders([${deleteHeaders}, options?.headers])`);
+      deleteParts.push(...generated.filter((part) => !part.startsWith('headers:')));
       const indented = deleteParts.map((p) => `  ${p},`).join('\n');
       return `return this._client.delete(${pathExpr}, {\n${indented}\n});`;
     }
@@ -360,7 +399,7 @@ function buildReturnType(method: MethodNode): string {
     return `${pageClass}<${emitTypeRef(itemType)}>`;
   }
 
-  return emitTypeRef(method.responseType);
+  return method.responseFormat === 'binary' ? 'Uint8Array' : emitTypeRef(method.responseType);
 }
 
 /**

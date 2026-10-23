@@ -5,7 +5,7 @@ import type { Uploadable } from './types.js';
 
 export function isUploadable(value: unknown): value is Uploadable {
   return (
-    value instanceof File ||
+    (typeof File !== 'undefined' && value instanceof File) ||
     value instanceof Blob ||
     (typeof ReadableStream !== 'undefined' && value instanceof ReadableStream)
   );

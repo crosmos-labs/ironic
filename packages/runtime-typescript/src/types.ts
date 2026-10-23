@@ -30,6 +30,11 @@ export interface RequestOptions {
   query?: Record<string, unknown> | object | null;
   body?: unknown;
   headers?: HeadersInit;
+  /** Operation cookie parameters. */
+  cookies?: Record<string, string | number | boolean | null | undefined>;
+  /** Generated OpenAPI query serialization metadata. */
+  querySerialization?: Record<string, 'comma' | 'space' | 'pipe' | 'deepObject' | 'formObject' | 'formObjectComma'>;
+  responseFormat?: 'json' | 'text' | 'binary';
   timeout?: number;
   maxRetries?: number;
   signal?: AbortSignal;

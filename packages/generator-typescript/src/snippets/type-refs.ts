@@ -54,7 +54,7 @@ export function collectResourceTypeRefs(resource: ResourceNode): Set<string> {
     if (method.paginationItemType) {
       for (const r of collectTypeRefs(method.paginationItemType)) refs.add(r);
     }
-    for (const param of [...method.pathParams, ...method.queryParams]) {
+    for (const param of [...method.pathParams, ...method.queryParams, ...(method.headerParams ?? []), ...(method.cookieParams ?? [])]) {
       for (const r of collectTypeRefs(param.type)) refs.add(r);
     }
     if (method.queryParamsTypeName) {

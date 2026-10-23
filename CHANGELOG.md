@@ -13,6 +13,7 @@ All notable changes are documented here. Versions follow [Semantic Versioning](h
 - GitHub Actions CI (build + lint + unit/snapshot tests + runtime tests on Node 20 and 22).
 
 ### Fixed
+- Generated TypeScript and Python SDKs now serialize supported OpenAPI query, header, and cookie parameters, optional bodies, and text or binary payloads; unsupported parameter styles and media types fail during planning.
 - MCP generation now honors configured package names and emits a streamable HTTP server when `transport: http` is selected.
 - MCP `execute_code` now transpiles TypeScript and terminates timed-out asynchronous or looping calls in an isolated worker.
 - Generated pagination now follows configured cursor, item, total, and page parameter names in TypeScript and Python, including numeric offsets.

@@ -21,6 +21,9 @@ function buildImports(resource: ResourceNode, depth: number): string {
     'import httpx',
     '',
   ];
+  if (resource.methods.some((method) => method.pathParams.length > 0)) {
+    lines.push('from urllib.parse import quote', '');
+  }
 
   const coreImports: string[] = ['SyncAPIResource', 'AsyncAPIResource'];
 
@@ -114,7 +117,17 @@ function buildMethodSignature(method: MethodNode, isAsync: boolean): string {
   }
 
   if (method.requestBody) {
-    params.push(`body: ${emitPythonTypeRef(method.requestBody)}`);
+    const type = method.requestBodyContentType === 'application/octet-stream' ? 'bytes' : emitPythonTypeRef(method.requestBody);
+    params.push(method.requestBodyRequired === false ? `body: Optional[${type}] = None` : `body: ${type}`);
+  }
+
+  const wireParams = [...(method.headerParams ?? []), ...(method.cookieParams ?? [])];
+  if (wireParams.length) {
+    params.push('*');
+    for (const param of wireParams) {
+      const type = emitPythonTypeRef(param.type);
+      params.push(`${toSnake(param.tsName)}: ${param.required ? type : `Optional[${type}] = None`}`);
+    }
   }
 
   if (method.queryParamsTypeName) {
@@ -155,6 +168,28 @@ function buildMethodBody(method: MethodNode, isAsync: boolean): string {
       .join(', ');
     kwargParts.push(`query={${queryDict}}`);
   }
+
+  const querySerialization = Object.fromEntries(method.queryParams.flatMap((p) => {
+    if (p.style === 'deepObject') return [[p.name, 'deepObject']];
+    if (p.style === 'spaceDelimited') return [[p.name, 'space']];
+    if (p.style === 'pipeDelimited') return [[p.name, 'pipe']];
+    if (p.type.kind === 'object' || p.type.kind === 'record') {
+      return [[p.name, p.explode === false ? 'formObjectComma' : 'formObject']];
+    }
+    return p.type.kind === 'array' && p.explode === false ? [[p.name, 'comma']] : [];
+  }));
+  if (Object.keys(querySerialization).length) kwargParts.push(`query_serialization=${JSON.stringify(querySerialization)}`);
+
+  const headerValues: string[] = [];
+  if (method.responseFormat === 'text') headerValues.push(`"Accept": "${method.responseContentType ?? 'text/plain'}"`);
+  if (method.responseFormat === 'binary') headerValues.push(`"Accept": "${method.responseContentType ?? 'application/octet-stream'}"`);
+  if (method.requestBodyContentType && method.requestBodyContentType !== 'application/json' && method.requestBodyContentType !== 'multipart/form-data') {
+    headerValues.push(`"Content-Type": "${method.requestBodyContentType}"`);
+  }
+  headerValues.push(...(method.headerParams ?? []).map((p) => `"${p.name}": ${toSnake(p.tsName)}`));
+  if (headerValues.length) kwargParts.push(`headers={**kwargs.pop("headers", {}), **{k: ("true" if v else "false") if isinstance(v, bool) else ",".join(map(str, v)) if isinstance(v, list) else str(v) for k, v in {${headerValues.join(', ')}}.items() if v is not None}}`);
+  const cookieValues = (method.cookieParams ?? []).map((p) => `"${p.name}": ${toSnake(p.tsName)}`);
+  if (cookieValues.length) kwargParts.push(`cookies={**kwargs.pop("cookies", {}), **{k: v for k, v in {${cookieValues.join(', ')}}.items() if v is not None}}`);
 
   kwargParts.push('**kwargs');
   const argsStr = `${callArgs.join(', ')}, ${kwargParts.join(', ')}`;
@@ -202,9 +237,9 @@ function buildMethodBody(method: MethodNode, isAsync: boolean): string {
   }
 
   if (isAsync) {
-    return `response = await self._client.${httpMethod}(${argsStr})\n        return response.json()`;
+    return `response = await self._client.${httpMethod}(${argsStr})\n        return response.${method.responseFormat === 'text' ? 'text' : method.responseFormat === 'binary' ? 'content' : 'json()'}`;
   }
-  return `return self._client.${httpMethod}(${argsStr}).json()`;
+  return `return self._client.${httpMethod}(${argsStr}).${method.responseFormat === 'text' ? 'text' : method.responseFormat === 'binary' ? 'content' : 'json()'}`;
 }
 
 function buildPathExpression(specPath: string, pathParams: ParamNode[]): string {
@@ -212,7 +247,7 @@ function buildPathExpression(specPath: string, pathParams: ParamNode[]): string 
 
   let template = specPath;
   for (const param of pathParams) {
-    template = template.replace(`{${param.name}}`, `{${toSnake(param.tsName)}}`);
+    template = template.replace(`{${param.name}}`, `{quote(str(${toSnake(param.tsName)}), safe='')}`);
   }
   return `f"${template}"`;
 }
@@ -231,7 +266,7 @@ function buildReturnType(method: MethodNode, isAsync: boolean): string {
     return `${pageClass}[${emitPythonTypeRef(itemType)}]`;
   }
 
-  return emitPythonTypeRef(method.responseType);
+  return method.responseFormat === 'binary' ? 'bytes' : emitPythonTypeRef(method.responseType);
 }
 
 function extractPageItemType(responseType: TypeRef): TypeRef {

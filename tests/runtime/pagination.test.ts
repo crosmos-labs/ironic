@@ -22,6 +22,25 @@ describe('configured pagination', () => {
     expect(seen.map((url) => url.searchParams.get('next'))).toEqual([null, 'cursor two']);
   });
 
+  it('continues when the response cursor is numeric zero', async () => {
+    const seen: URL[] = [];
+    const responses = [
+      { results: [{ id: 'first' }], next: 0 },
+      { results: [{ id: 'second' }], next: null },
+    ];
+    const client = new BaseClient({ baseURL: 'https://example.test', fetch: async (input) => {
+      seen.push(new URL(String(input)));
+      return Response.json(responses[seen.length - 1]);
+    } });
+    const page = await client.getAPIList('/items', CursorPage, {
+      pagination: { type: 'cursor', request: { cursorParam: 'after' }, response: {
+        itemsKey: 'results', cursorSource: 'next_cursor_field', nextCursorKey: 'next',
+      } },
+    });
+    expect((await page.toArray()).map((item: { id: string }) => item.id)).toEqual(['first', 'second']);
+    expect(seen[1]?.searchParams.get('after')).toBe('0');
+  });
+
   it.each([
     { mode: 'offset' as const, pageParam: 'start', expected: '2' },
     { mode: 'page_number' as const, pageParam: 'page_number', expected: '2' },

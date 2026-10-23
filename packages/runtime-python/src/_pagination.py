@@ -42,7 +42,7 @@ class SyncCursorPage(Generic[T]):
         yield from self.data
 
     def has_next_page(self) -> bool:
-        return self.has_more and (self._next_cursor is not None if self._cursor_source == "next_cursor_field" else len(self.data) > 0)
+        return self.has_more and (self._next_cursor not in (None, "") if self._cursor_source == "next_cursor_field" else len(self.data) > 0)
 
     def next_page(self) -> SyncCursorPage[T]:
         last = self.data[-1] if self.data else None
@@ -81,7 +81,7 @@ class SyncCursorPage(Generic[T]):
         return cls(
             client=client,
             data=response_body.get(items_key, []),
-            has_more=bool(response_body.get(next_cursor_key)) if cursor_source == "next_cursor_field" else response_body.get(has_more_key, False),
+            has_more=response_body.get(next_cursor_key) not in (None, "") if cursor_source == "next_cursor_field" else response_body.get(has_more_key, False),
             options=options,
             items_key=items_key,
             has_more_key=has_more_key,
@@ -128,7 +128,7 @@ class AsyncCursorPage(Generic[T]):
         yield from self.data
 
     def has_next_page(self) -> bool:
-        return self.has_more and (self._next_cursor is not None if self._cursor_source == "next_cursor_field" else len(self.data) > 0)
+        return self.has_more and (self._next_cursor not in (None, "") if self._cursor_source == "next_cursor_field" else len(self.data) > 0)
 
     async def next_page(self) -> AsyncCursorPage[T]:
         last = self.data[-1] if self.data else None
@@ -163,7 +163,7 @@ class AsyncCursorPage(Generic[T]):
         return cls(
             client=client,
             data=response_body.get(items_key, []),
-            has_more=bool(response_body.get(next_cursor_key)) if cursor_source == "next_cursor_field" else response_body.get(has_more_key, False),
+            has_more=response_body.get(next_cursor_key) not in (None, "") if cursor_source == "next_cursor_field" else response_body.get(has_more_key, False),
             options=options,
             items_key=items_key,
             has_more_key=has_more_key,

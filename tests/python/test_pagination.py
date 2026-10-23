@@ -45,6 +45,15 @@ class PaginationTests(unittest.TestCase):
             {'entries': [3], 'count': 3},
         ], 'start', '2')
 
+    def test_zero_cursor_is_a_next_page(self):
+        self.check_sync('SyncCursorPage', {
+            'items_key': 'entries', 'cursor_param': 'next',
+            'cursor_source': 'next_cursor_field', 'next_cursor_key': 'following',
+        }, [
+            {'entries': [1, 2], 'following': 0},
+            {'entries': [3], 'following': None},
+        ], 'next', '0')
+
     def test_async_page_numbers(self):
         async def check():
             module = importlib.import_module('auth_none._core')
