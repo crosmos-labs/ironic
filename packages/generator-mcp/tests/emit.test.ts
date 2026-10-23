@@ -20,6 +20,7 @@ describe('MCP generator (petstore)', () => {
     expect(paths).toContain('README.md');
     expect(paths).toContain('src/index.ts');
     expect(paths).toContain('src/sandbox.ts');
+    expect(paths).toContain('src/execution-worker.ts');
     expect(paths).toContain('src/docs.ts');
     expect(paths).toContain('src/tools/execute-code.ts');
     expect(paths).toContain('src/tools/search-docs.ts');
@@ -32,9 +33,9 @@ describe('MCP generator (petstore)', () => {
     const ir = plan(config, spec);
     const files = emit(ir);
 
-    const sandbox = files.get('src/sandbox.ts')!;
-    expect(sandbox).toContain("import { PetstoreClient } from '@petstore/sdk'");
-    expect(sandbox).toContain('new PetstoreClient()');
+    const worker = files.get('src/execution-worker.ts')!;
+    expect(worker).toContain("import { PetstoreClient } from '@petstore/sdk'");
+    expect(worker).toContain('new PetstoreClient()');
   });
 
   it('server entry uses correct name', async () => {
